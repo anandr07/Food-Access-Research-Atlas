@@ -50,7 +50,7 @@ The analysis was extended to estimate the causal effects of SNAP participation (
 ## Tableau Dashboard
 For interactive visualization of these findings, please visit our Tableau dashboard:
 
-[View Tableau Dashboard]((https://prod-useast-b.online.tableau.com/#/site/gwudats6401sg/workbooks/2571930?:origin=card_share_link))
+[View Tableau Dashboard](https://prod-useast-b.online.tableau.com/#/site/gwudats6401sg/workbooks/2571930?:origin=card_share_link)
 
 
 
