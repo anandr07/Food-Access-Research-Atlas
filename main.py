@@ -512,3 +512,1835 @@ plt.figure(figsize=(14,12))
 sns.heatmap(data[extended_cols].corr(), annot=True, cmap='viridis')
 plt.title("Extended Correlation Heatmap: Housing, Food Access & Racial Limited Access Measures")
 plt.show()
+
+#%%[md]
+# # Causal Inference Analysis
+
+#%%
+import pandas as pd
+df = pd.read_excel('final.xls',sheet_name ='Sheet1')
+
+#%%
+# Install required packages if not already installed
+# !pip install causalinference
+# !pip install causalinference==0.0.8
+# !pip install numpy==1.23.5
+# !pip install econml
+
+#%%
+from graphviz import Digraph
+
+# Identify all confounder columns automatically
+confounders = [
+    col for col in data.columns
+    if col not in ['PCH_SNAP_12_17', 'FOODINSEC_15_17', 'High_SNAP']
+]
+
+dot = Digraph()
+
+# Treatment and outcome
+dot.node("T", "High_SNAP")
+dot.node("Y", "FOODINSEC_15_17")
+
+# Add each confounder as its own node, with arrows into T and Y
+for c in confounders:
+    dot.node(c, c)
+    dot.edge(c, "T")
+    dot.edge(c, "Y")
+
+# Direct causal effect of treatment on outcome
+dot.edge("T", "Y")
+
+# Render (creates causal_dag.pdf and opens it)
+dot.render("causal_dag", view=True)
+
+#%%
+import scipy.stats as stats
+import matplotlib.pyplot as plt
+import numpy as np
+# Assuming df is your original dataframe loaded already
+columns = [
+    'PCH_SNAP_12_17', 'FOODINSEC_15_17', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+    'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+    'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+    'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+    'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+    'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10','Urban'
+]
+
+# Drop NA values to maintain data quality
+data = df[columns].dropna()
+
+# Define treatment properly using median
+median_snap = data['PCH_SNAP_12_17'].median()
+data['High_SNAP'] = (data['PCH_SNAP_12_17'] > median_snap).astype(int)
+# 1️⃣ Descriptive statistics by group
+summary = data.groupby('High_SNAP')['FOODINSEC_15_17'].agg(
+    count='count',
+    mean='mean',
+    median='median',
+    std='std',
+    min='min',
+    max='max'
+)
+print("Descriptive stats:\n", summary)
+
+# 2️⃣ Independent t‑test (with variance check)
+levene_p = stats.levene(
+    data.loc[data.High_SNAP==1, 'FOODINSEC_15_17'],
+    data.loc[data.High_SNAP==0, 'FOODINSEC_15_17']
+).pvalue
+equal_var = True if levene_p > 0.05 else False
+
+t_stat, t_p = stats.ttest_ind(
+    data.loc[data.High_SNAP==1, 'FOODINSEC_15_17'],
+    data.loc[data.High_SNAP==0, 'FOODINSEC_15_17'],
+    equal_var=equal_var
+)
+print(f"\nLevene’s test p-value = {levene_p:.4f} → equal_var={equal_var}")
+print(f"T‑test: t = {t_stat:.3f}, p = {t_p:.4f}")
+
+# 3️⃣ Cohen’s d
+mean_diff = summary.loc[1,'mean'] - summary.loc[0,'mean']
+pooled_sd = np.sqrt(((summary.loc[1,'count']-1)*summary.loc[1,'std']**2 +
+                     (summary.loc[0,'count']-1)*summary.loc[0,'std']**2) /
+                    (summary.loc[1,'count'] + summary.loc[0,'count'] - 2))
+cohens_d = mean_diff / pooled_sd
+print(f"Cohen’s d = {cohens_d:.3f}")
+
+# 4️⃣ Mann–Whitney U test (non-parametric)
+u_stat, u_p = stats.mannwhitneyu(
+    data.loc[data.High_SNAP==1, 'FOODINSEC_15_17'],
+    data.loc[data.High_SNAP==0, 'FOODINSEC_15_17'],
+    alternative='two-sided'
+)
+print(f"Mann–Whitney U: U = {u_stat:.3f}, p = {u_p:.4f}")
+
+# 5️⃣ Visualizations
+plt.figure()
+data.boxplot(column='FOODINSEC_15_17', by='High_SNAP')
+plt.title('Food Insecurity by SNAP Level')
+plt.suptitle('')
+plt.xlabel('High SNAP (1 = above median)')
+plt.ylabel('Food Insecurity (%)')
+plt.show()
+
+plt.figure()
+data[data.High_SNAP==1]['FOODINSEC_15_17'].hist(alpha=0.7, label='High SNAP')
+data[data.High_SNAP==0]['FOODINSEC_15_17'].hist(alpha=0.7, label='Low SNAP')
+plt.legend()
+plt.title('Distribution of Food Insecurity by SNAP Level')
+plt.xlabel('Food Insecurity (%)')
+plt.ylabel('Frequency')
+plt.show()
+
+#%%
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from causalinference import CausalModel
+from sklearn.linear_model import LogisticRegression
+import statsmodels.api as sm
+
+# Assuming df is your original dataframe loaded already
+# columns = [
+#     'PCH_SNAP_12_17', 'FOODINSEC_15_17', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+#     'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+#     'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+#     'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+#     'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+#     'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10','Urban'
+# ]
+
+# # Drop NA values to maintain data quality
+# data = df[columns].dropna()
+
+# # Define treatment properly using median
+# median_snap = data['PCH_SNAP_12_17'].median()
+# data['High_SNAP'] = (data['PCH_SNAP_12_17'] > median_snap).astype(int)
+
+# Outcome and Treatment
+Y = data['FOODINSEC_15_17'].values
+T = data['High_SNAP'].values
+
+# Confounders (covariates)
+X = data.drop(columns=['PCH_SNAP_12_17', 'FOODINSEC_15_17', 'High_SNAP']).values
+
+# Standardize confounders
+scaler = StandardScaler()
+X_std = scaler.fit_transform(X)
+
+### 🌟 **1. Propensity Score Matching (PSM)**
+causal = CausalModel(Y, T, X_std)
+causal.est_propensity()
+
+print("\nBefore Matching Balance:")
+print(causal.summary_stats)
+
+causal.est_via_matching()
+
+print("\nMatching Estimates:")
+print(causal.estimates)
+
+print("\nAfter Matching Balance:")
+print(causal.summary_stats)
+
+### 🌟 **2. Inverse Probability of Treatment Weighting (IPTW)**
+# Logistic Regression for Propensity Scores
+ps_model = LogisticRegression().fit(X_std, T)
+propensity_scores = ps_model.predict_proba(X_std)[:, 0]
+
+# Ensure stable weights (clipping extreme propensity scores)
+# eps = 1e-6
+# propensity_scores = np.clip(propensity_scores, eps, 1 - eps)
+# weights = T / propensity_scores + (1 - T) / (1 - propensity_scores)
+
+# Stabilized IPTW weights (standard practice):
+treated_weights = T.mean() / propensity_scores
+control_weights = (1 - T).mean() / (1 - propensity_scores)
+
+weights = T * treated_weights + (1 - T) * control_weights
+
+
+# Weighted regression to estimate causal effects
+X_treatment = sm.add_constant(T)
+iptw_model = sm.WLS(Y, X_treatment, weights=weights)
+iptw_results = iptw_model.fit()
+print("\nIPTW Regression Results (Corrected):")
+print(iptw_results.summary())
+
+
+
+
+### 🌟 **3. Doubly Robust Estimation**
+seed = 12345
+from sklearn.ensemble import RandomForestRegressor
+from econml.dr import LinearDRLearner
+
+regressor = RandomForestRegressor(random_state=seed)
+propensity = LogisticRegression(random_state=seed)
+
+
+
+
+dr_model = LinearDRLearner(model_regression=regressor,
+                           model_propensity=propensity)
+dr_model.fit(Y, T, X=X_std)
+treatment_effect = dr_model.ate(X_std)
+print(f"\nDoubly Robust ATE: {treatment_effect:.4f}")
+
+### 🌟 **Additional Techniques for ATE Estimation**
+
+# 4. Regression Adjustment (Outcome Modeling)
+# Here, we run an OLS regression that includes the treatment indicator and the standardized covariates.
+X_reg = sm.add_constant(np.column_stack([T, X_std]))
+reg_model = sm.OLS(Y, X_reg).fit()
+ate_reg_adj = reg_model.params[1]
+print(f"\nRegression Adjustment ATE: {ate_reg_adj:.4f}")
+
+#%%
+w_treated = weights[T == 1]
+w_control = weights[T == 0]
+y_treated = Y[T == 1]
+y_control = Y[T == 0]
+
+# Weighted means
+mean_treated = np.sum(w_treated * y_treated) / np.sum(w_treated)
+mean_control = np.sum(w_control * y_control) / np.sum(w_control)
+
+iptw_diff = mean_treated - mean_control
+print("IPTW difference (manual) =", iptw_diff)
+
+#%%
+import matplotlib.pyplot as plt
+plt.hist(propensity_scores[T==1], bins=30, alpha=0.5, label='Treated')
+plt.hist(propensity_scores[T==0], bins=30, alpha=0.5, label='Control')
+plt.legend()
+plt.show()
+
+#%%
+dr_model = LinearDRLearner(model_regression=regressor,
+                           model_propensity=propensity)
+dr_model.fit(Y, T, X=X_std)
+ate_dr = dr_model.ate(X_std)
+print("DR ATE:", ate_dr)
+
+#%%
+import scipy.stats as stats
+import matplotlib.pyplot as plt
+import numpy as np
+# Assuming df is your original dataframe loaded already
+columns = [
+    'PCH_SNAP_12_17', 'PCT_OBESE_ADULTS17', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+    'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+    'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+    'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+    'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+    'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10','Urban'
+]
+
+# Drop NA values to maintain data quality
+data = df[columns].dropna()
+
+# Define treatment properly using median
+median_snap = data['PCH_SNAP_12_17'].median()
+data['High_SNAP'] = (data['PCH_SNAP_12_17'] > median_snap).astype(int)
+# 1️⃣ Descriptive statistics by group
+summary = data.groupby('High_SNAP')['PCT_OBESE_ADULTS17'].agg(
+    count='count',
+    mean='mean',
+    median='median',
+    std='std',
+    min='min',
+    max='max'
+)
+print("Descriptive stats:\n", summary)
+
+# 2️⃣ Independent t‑test (with variance check)
+levene_p = stats.levene(
+    data.loc[data.High_SNAP==1, 'PCT_OBESE_ADULTS17'],
+    data.loc[data.High_SNAP==0, 'PCT_OBESE_ADULTS17']
+).pvalue
+equal_var = True if levene_p > 0.05 else False
+
+t_stat, t_p = stats.ttest_ind(
+    data.loc[data.High_SNAP==1, 'PCT_OBESE_ADULTS17'],
+    data.loc[data.High_SNAP==0, 'PCT_OBESE_ADULTS17'],
+    equal_var=equal_var
+)
+print(f"\nLevene’s test p-value = {levene_p:.4f} → equal_var={equal_var}")
+print(f"T‑test: t = {t_stat:.3f}, p = {t_p:.4f}")
+
+# 3️⃣ Cohen’s d
+mean_diff = summary.loc[1,'mean'] - summary.loc[0,'mean']
+pooled_sd = np.sqrt(((summary.loc[1,'count']-1)*summary.loc[1,'std']**2 +
+                     (summary.loc[0,'count']-1)*summary.loc[0,'std']**2) /
+                    (summary.loc[1,'count'] + summary.loc[0,'count'] - 2))
+cohens_d = mean_diff / pooled_sd
+print(f"Cohen’s d = {cohens_d:.3f}")
+
+# 4️⃣ Mann–Whitney U test (non-parametric)
+u_stat, u_p = stats.mannwhitneyu(
+    data.loc[data.High_SNAP==1, 'PCT_OBESE_ADULTS17'],
+    data.loc[data.High_SNAP==0, 'PCT_OBESE_ADULTS17'],
+    alternative='two-sided'
+)
+print(f"Mann–Whitney U: U = {u_stat:.3f}, p = {u_p:.4f}")
+
+# 5️⃣ Visualizations
+plt.figure()
+data.boxplot(column='PCT_OBESE_ADULTS17', by='High_SNAP')
+plt.title('Obesity by SNAP Level')
+plt.suptitle('')
+plt.xlabel('High SNAP (1 = above median)')
+plt.ylabel('Obesity (%)')
+plt.show()
+
+plt.figure()
+data[data.High_SNAP==1]['PCT_OBESE_ADULTS17'].hist(alpha=0.7, label='High SNAP')
+data[data.High_SNAP==0]['PCT_OBESE_ADULTS17'].hist(alpha=0.7, label='Low SNAP')
+plt.legend()
+plt.title('Distribution of Onesity by SNAP Level')
+plt.xlabel('Obesity (%)')
+plt.ylabel('Frequency')
+plt.show()
+
+#%%
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from causalinference import CausalModel
+from sklearn.linear_model import LogisticRegression
+import statsmodels.api as sm
+
+# Assuming df is your original dataframe loaded already
+# columns = [
+#     'PCH_SNAP_12_17', 'PCT_OBESE_ADULTS17', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+#     'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+#     'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+#     'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+#     'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+#     'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10','Urban'
+# ]
+
+# # Drop NA values to maintain data quality
+# data = df[columns].dropna()
+
+# # Define treatment properly using median
+# median_snap = data['PCH_SNAP_12_17'].median()
+# data['High_SNAP'] = (data['PCH_SNAP_12_17'] > median_snap).astype(int)
+
+# Outcome and Treatment
+Y = data['PCT_OBESE_ADULTS17'].values
+T = data['High_SNAP'].values
+
+# Confounders (covariates)
+X = data.drop(columns=['PCH_SNAP_12_17', 'PCT_OBESE_ADULTS17', 'High_SNAP']).values
+
+# Standardize confounders
+scaler = StandardScaler()
+X_std = scaler.fit_transform(X)
+
+### 🌟 **1. Propensity Score Matching (PSM)**
+
+causal = CausalModel(Y, T, X_std)
+causal.est_propensity()
+
+print("\nBefore Matching Balance:")
+print(causal.summary_stats)
+
+causal.est_via_matching()
+
+print("\nMatching Estimates:")
+print(causal.estimates)
+
+print("\nAfter Matching Balance:")
+print(causal.summary_stats)
+
+### 🌟 **2. Inverse Probability of Treatment Weighting (IPTW)**
+
+# Logistic Regression for Propensity Scores
+ps_model = LogisticRegression(max_iter=1000).fit(X_std, T)
+propensity_scores = ps_model.predict_proba(X_std)[:, 0]
+
+# Ensure stable weights (clipping extreme propensity scores)
+# eps = 1e-6
+# propensity_scores = np.clip(propensity_scores, eps, 1 - eps)
+treated_weights = T.mean() / propensity_scores
+control_weights = (1 - T).mean() / (1 - propensity_scores)
+
+weights = T * treated_weights + (1 - T) * control_weights
+
+# Weighted regression to estimate causal effects
+X_treatment = sm.add_constant(T)
+iptw_model = sm.WLS(Y, X_treatment, weights=weights)
+iptw_results = iptw_model.fit()
+
+print("\nIPTW Regression Results:")
+print(iptw_results.summary())
+
+
+
+## 📌 **Additional Robust Causal Inference Methods**
+
+# Include these methods to strengthen your analysis:
+
+### 🌟 **3. Doubly Robust Estimation (Recommended)**
+seed = 12345
+
+from sklearn.ensemble import RandomForestRegressor
+from econml.dr import LinearDRLearner
+
+regressor = RandomForestRegressor(random_state=seed, n_jobs=-1)
+propensity = LogisticRegression(max_iter=1000, random_state=seed)
+
+dr_model = LinearDRLearner(model_regression=regressor,
+                           model_propensity=propensity)
+dr_model.fit(Y, T, X=X_std)
+treatment_effect = dr_model.ate(X_std)
+print(f"Doubly Robust ATE: {treatment_effect:.4f}")
+
+X_reg = sm.add_constant(np.column_stack([T, X_std]))
+reg_model = sm.OLS(Y, X_reg).fit()
+ate_reg_adj = reg_model.params[1]
+print(f"\nRegression Adjustment ATE: {ate_reg_adj:.4f}")
+
+#%%
+import scipy.stats as stats
+import matplotlib.pyplot as plt
+import numpy as np
+# Assuming df is your original dataframe loaded already
+columns = [
+    'PCH_SNAP_12_17', 'PCT_DIABETES_ADULTS13', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+    'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+    'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+    'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+    'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+    'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10','Urban'
+]
+
+# Drop NA values to maintain data quality
+data = df[columns].dropna()
+
+# Define treatment properly using median
+median_snap = data['PCH_SNAP_12_17'].median()
+data['High_SNAP'] = (data['PCH_SNAP_12_17'] > median_snap).astype(int)
+# 1️⃣ Descriptive statistics by group
+summary = data.groupby('High_SNAP')['PCT_DIABETES_ADULTS13'].agg(
+    count='count',
+    mean='mean',
+    median='median',
+    std='std',
+    min='min',
+    max='max'
+)
+print("Descriptive stats:\n", summary)
+
+# 2️⃣ Independent t‑test (with variance check)
+levene_p = stats.levene(
+    data.loc[data.High_SNAP==1, 'PCT_DIABETES_ADULTS13'],
+    data.loc[data.High_SNAP==0, 'PCT_DIABETES_ADULTS13']
+).pvalue
+equal_var = True if levene_p > 0.05 else False
+
+t_stat, t_p = stats.ttest_ind(
+    data.loc[data.High_SNAP==1, 'PCT_DIABETES_ADULTS13'],
+    data.loc[data.High_SNAP==0, 'PCT_DIABETES_ADULTS13'],
+    equal_var=equal_var
+)
+print(f"\nLevene’s test p-value = {levene_p:.4f} → equal_var={equal_var}")
+print(f"T‑test: t = {t_stat:.3f}, p = {t_p:.4f}")
+
+# 3️⃣ Cohen’s d
+mean_diff = summary.loc[1,'mean'] - summary.loc[0,'mean']
+pooled_sd = np.sqrt(((summary.loc[1,'count']-1)*summary.loc[1,'std']**2 +
+                     (summary.loc[0,'count']-1)*summary.loc[0,'std']**2) /
+                    (summary.loc[1,'count'] + summary.loc[0,'count'] - 2))
+cohens_d = mean_diff / pooled_sd
+print(f"Cohen’s d = {cohens_d:.3f}")
+
+# 4️⃣ Mann–Whitney U test (non-parametric)
+u_stat, u_p = stats.mannwhitneyu(
+    data.loc[data.High_SNAP==1, 'PCT_DIABETES_ADULTS13'],
+    data.loc[data.High_SNAP==0, 'PCT_DIABETES_ADULTS13'],
+    alternative='two-sided'
+)
+print(f"Mann–Whitney U: U = {u_stat:.3f}, p = {u_p:.4f}")
+
+# 5️⃣ Visualizations
+plt.figure()
+data.boxplot(column='PCT_DIABETES_ADULTS13', by='High_SNAP')
+plt.title('Diabetes by SNAP Level')
+plt.suptitle('')
+plt.xlabel('High SNAP (1 = above median)')
+plt.ylabel('Diabetes (%)')
+plt.show()
+
+plt.figure()
+data[data.High_SNAP==1]['PCT_DIABETES_ADULTS13'].hist(alpha=0.7, label='High SNAP')
+data[data.High_SNAP==0]['PCT_DIABETES_ADULTS13'].hist(alpha=0.7, label='Low SNAP')
+plt.legend()
+plt.title('Distribution of Diabetes by SNAP Level')
+plt.xlabel('Diabetes (%)')
+plt.ylabel('Frequency')
+plt.show()
+
+
+#%%
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from causalinference import CausalModel
+from sklearn.linear_model import LogisticRegression
+import statsmodels.api as sm
+
+# Assuming df is your original dataframe loaded already
+# columns = [
+#     'PCH_SNAP_12_17', 'PCT_DIABETES_ADULTS13', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+#     'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+#     'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+#     'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+#     'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+#     'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10','Urban'
+# ]
+
+# # Drop NA values to maintain data quality
+# data = df[columns].dropna()
+
+# # Define treatment properly using median
+# median_snap = data['PCH_SNAP_12_17'].median()
+# data['High_SNAP'] = (data['PCH_SNAP_12_17'] > median_snap).astype(int)
+
+# Outcome and Treatment
+Y = data['PCT_DIABETES_ADULTS13'].values
+T = data['High_SNAP'].values
+
+# Confounders (covariates)
+X = data.drop(columns=['PCH_SNAP_12_17', 'PCT_DIABETES_ADULTS13', 'High_SNAP']).values
+
+# Standardize confounders
+scaler = StandardScaler()
+X_std = scaler.fit_transform(X)
+
+### 🌟 **1. Propensity Score Matching (PSM)**
+
+causal = CausalModel(Y, T, X_std)
+causal.est_propensity()
+
+print("\nBefore Matching Balance:")
+print(causal.summary_stats)
+
+causal.est_via_matching()
+
+print("\nMatching Estimates:")
+print(causal.estimates)
+
+print("\nAfter Matching Balance:")
+print(causal.summary_stats)
+
+### 🌟 **2. Inverse Probability of Treatment Weighting (IPTW)**
+
+# Logistic Regression for Propensity Scores
+ps_model = LogisticRegression(max_iter=1000).fit(X_std, T)
+propensity_scores = ps_model.predict_proba(X_std)[:, 0]
+
+# Ensure stable weights (clipping extreme propensity scores)
+eps = 1e-6
+propensity_scores = np.clip(propensity_scores, eps, 1 - eps)
+treated_weights = T.mean() / propensity_scores
+control_weights = (1 - T).mean() / (1 - propensity_scores)
+
+weights = T * treated_weights + (1 - T) * control_weights
+
+# Weighted regression to estimate causal effects
+X_treatment = sm.add_constant(T)
+iptw_model = sm.WLS(Y, X_treatment, weights=weights)
+iptw_results = iptw_model.fit()
+
+print("\nIPTW Regression Results:")
+print(iptw_results.summary())
+
+
+
+## 📌 **Additional Robust Causal Inference Methods**
+
+# Include these methods to strengthen your analysis:
+
+### 🌟 **3. Doubly Robust Estimation (Recommended)**
+seed = 12345
+
+from sklearn.ensemble import RandomForestRegressor
+from econml.dr import LinearDRLearner
+
+regressor = RandomForestRegressor(random_state=seed, n_jobs=-1)
+propensity = LogisticRegression(max_iter=1000, random_state=seed)
+
+dr_model = LinearDRLearner(model_regression=regressor,
+                           model_propensity=propensity)
+dr_model.fit(Y, T, X=X_std)
+treatment_effect = dr_model.ate(X_std)
+print(f"Doubly Robust ATE: {treatment_effect:.4f}")
+
+X_reg = sm.add_constant(np.column_stack([T, X_std]))
+reg_model = sm.OLS(Y, X_reg).fit()
+ate_reg_adj = reg_model.params[1]
+print(f"\nRegression Adjustment ATE: {ate_reg_adj:.4f}")
+
+
+#%%
+from econml.cate_interpreter import SingleTreeCateInterpreter
+import matplotlib.pyplot as plt
+
+# Reduce complexity by using a shallower tree (max_depth=2)
+cate_interpreter = SingleTreeCateInterpreter(max_depth=2, min_samples_leaf=30).interpret(dr_model, X_std)
+
+plt.figure(figsize=(12,8))  # Increase plot size for readability
+cate_interpreter.plot(
+    feature_names=data.drop(columns=['PCH_SNAP_12_17', 'PCT_DIABETES_ADULTS13', 'High_SNAP']).columns,
+    fontsize=12,
+    precision=2,  # limit decimal points
+    filled=True,  # colored boxes
+    rounded=True
+)
+
+plt.title("Simplified Heterogeneous Treatment Effect (HTE) Analysis", fontsize=14, weight='bold')
+plt.tight_layout()
+plt.show()
+
+
+#%%
+col_name_map = {
+    'PCH_SNAP_12_17':           'SNAP participants (change % pop), 2012‑17',
+    'FOODINSEC_15_17':         'Household food insecurity (%), 2015‑17',
+    'PCT_LACCESS_POP10':       'Population low access to store (%), 2010',
+    'PCT_LACCESS_LOWI10':      'Low income & low access to store (%), 2010',
+    'PCT_LACCESS_HHNV10':      'Households no car & low access to store (%), 2010',
+    'PCT_LACCESS_CHILD10':     'Children low access to store (%), 2010',
+    'PCT_LACCESS_SENIORS10':   'Seniors low access to store (%), 2010',
+    'GROCPTH11':               'Grocery stores/1,000 pop, 2011',
+    'SUPERCPTH11':             'Supercenters & club stores/1,000 pop, 2011',
+    'CONVSPTH11':              'Convenience stores/1,000 pop, 2011',
+    'SPECSPTH11':              'Specialized food stores/1,000 pop, 2011',
+    'SNAPSPTH12':              'SNAP‑authorized stores/1,000 pop, 2012',
+    'WICSPTH11':               'WIC‑authorized stores/1,000 pop, 2011',
+    'FSRPTH11':                'Full‑service restaurants/1,000 pop, 2011',
+    'PC_FFRSALES07':           'Fast food expenditures per capita, 2007',
+    'PCT_NSLP12':              'National School Lunch Program (% children), 2012',
+    'PCT_FREE_LUNCH10':        'Students eligible for free lunch (%), 2010',
+    'PCT_REDUCED_LUNCH10':     'Students eligible for reduced‑price lunch (%), 2010',
+    'PCT_SBP12':               'School Breakfast Program (% children), 2012',
+    'PCT_SFSP12':              'Summer Food Service Program (% children), 2012',
+    'PCT_WIC12':               'WIC participants (% pop), 2012',
+    'PCT_WICINFANTCHILD14':    'WIC infant & children participants (%), 2014',
+    'PCT_WICWOMEN14':          'WIC women participants (%), 2014',
+    'PCT_CACFP12':             'Child & Adult Care Program (% pop), 2012',
+    'FDPIR12':                 'FDPIR sites, 2012',
+    'FMRKTPTH13':              'Farmers’ markets/1,000 pop, 2013',
+    'VEG_ACRESPTH07':          'Vegetable acres/1,000 pop, 2007',
+    'FRESHVEG_ACRESPTH07':     'Fresh market vegetable acres/1,000 pop, 2007',
+    'ORCHARD_ACRESPTH12':      'Orchard acres/1,000 pop, 2012',
+    'BERRY_ACRESPTH07':        'Berry acres/1,000 pop, 2007',
+    'SLHOUSE07':               'Small slaughterhouse facilities, 2007',
+    'GHVEG_SQFTPTH07':         'Greenhouse veg sq ft/1,000 pop, 2007',
+    'AGRITRSM_OPS07':          'Agritourism operations, 2007',
+    'PCT_DIABETES_ADULTS08':   'Adult diabetes rate (%), 2008',
+    'PCT_OBESE_ADULTS12':      'Adult obesity rate (%), 2012',
+    'RECFACPTH11':             'Recreation & fitness facilities/1,000 pop, 2011',
+    'PCT_NHWHITE10':           '% White, 2010',
+    'PCT_NHBLACK10':           '% Black, 2010',
+    'PCT_HISP10':              '% Hispanic, 2010',
+    'PCT_NHASIAN10':           '% Asian, 2010',
+    'PCT_NHNA10':              '% American Indian/Alaska Native, 2010',
+    'PCT_NHPI10':              '% Hawaiian/Pacific Islander, 2010',
+    'PCT_65OLDER10':           '% Population ≥65, 2010',
+    'PCT_18YOUNGER10':         '% Population <18, 2010',
+    'PERPOV10':                'Persistent‑poverty counties, 2010',
+    'METRO13':                 'Metro/nonmetro status, 2010',
+    'POPLOSS10':               'Population‑loss counties, 2010'
+}
+
+#%%
+import scipy.stats as stats
+import matplotlib.pyplot as plt
+import numpy as np
+# Assuming df is your original dataframe loaded already
+columns = [
+    'PCH_CACFP_12_17', 'FOODINSEC_15_17', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+    'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+    'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+    'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+    'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+    'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10','Urban'
+]
+
+# Drop NA values to maintain data quality
+data = df[columns].dropna()
+
+# Define treatment properly using median
+median_snap = data['PCH_CACFP_12_17'].median()
+data['High_CACFP'] = (data['PCH_CACFP_12_17'] > median_snap).astype(int)
+# 1️⃣ Descriptive statistics by group
+summary = data.groupby('High_CACFP')['FOODINSEC_15_17'].agg(
+    count='count',
+    mean='mean',
+    median='median',
+    std='std',
+    min='min',
+    max='max'
+)
+print("Descriptive stats:\n", summary)
+
+# 2️⃣ Independent t‑test (with variance check)
+levene_p = stats.levene(
+    data.loc[data.High_CACFP==1, 'FOODINSEC_15_17'],
+    data.loc[data.High_CACFP==0, 'FOODINSEC_15_17']
+).pvalue
+equal_var = True if levene_p > 0.05 else False
+
+t_stat, t_p = stats.ttest_ind(
+    data.loc[data.High_CACFP==1, 'FOODINSEC_15_17'],
+    data.loc[data.High_CACFP==0, 'FOODINSEC_15_17'],
+    equal_var=equal_var
+)
+print(f"\nLevene’s test p-value = {levene_p:.4f} → equal_var={equal_var}")
+print(f"T‑test: t = {t_stat:.3f}, p = {t_p:.4f}")
+
+# 3️⃣ Cohen’s d
+mean_diff = summary.loc[1,'mean'] - summary.loc[0,'mean']
+pooled_sd = np.sqrt(((summary.loc[1,'count']-1)*summary.loc[1,'std']**2 +
+                     (summary.loc[0,'count']-1)*summary.loc[0,'std']**2) /
+                    (summary.loc[1,'count'] + summary.loc[0,'count'] - 2))
+cohens_d = mean_diff / pooled_sd
+print(f"Cohen’s d = {cohens_d:.3f}")
+
+# 4️⃣ Mann–Whitney U test (non-parametric)
+u_stat, u_p = stats.mannwhitneyu(
+    data.loc[data.High_CACFP==1, 'FOODINSEC_15_17'],
+    data.loc[data.High_CACFP==0, 'FOODINSEC_15_17'],
+    alternative='two-sided'
+)
+print(f"Mann–Whitney U: U = {u_stat:.3f}, p = {u_p:.4f}")
+
+# 5️⃣ Visualizations
+plt.figure()
+data.boxplot(column='FOODINSEC_15_17', by='High_CACFP')
+plt.title('Food Insecurity by CACFP Level')
+plt.suptitle('')
+plt.xlabel('High CACFP (1 = above median)')
+plt.ylabel('Food Insecurity (%)')
+plt.show()
+
+plt.figure()
+data[data.High_CACFP==1]['FOODINSEC_15_17'].hist(alpha=0.7, label='High SNAP')
+data[data.High_CACFP==0]['FOODINSEC_15_17'].hist(alpha=0.7, label='Low SNAP')
+plt.legend()
+plt.title('Distribution of Food Insecurity by CACFP Level')
+plt.xlabel('Food Insecurity (%)')
+plt.ylabel('Frequency')
+plt.show()
+
+
+#%%
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from causalinference import CausalModel
+from sklearn.linear_model import LogisticRegression
+import statsmodels.api as sm
+
+
+
+# Assuming df is your original dataframe loaded already
+# columns = [
+#     'PCH_CACFP_12_17', 'FOODINSEC_15_17', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+#     'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+#     'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+#     'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+#     'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+#     'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10','Urban'
+# ]
+
+# # Drop NA values to maintain data quality
+# data = df[columns].dropna()
+
+# # Define treatment properly using median
+# median_snap = data['PCH_CACFP_12_17'].median()
+# data['High_CACFP'] = (data['PCH_CACFP_12_17'] > median_snap).astype(int)
+
+# Outcome and Treatment
+Y = data['FOODINSEC_15_17'].values
+T = data['High_CACFP'].values
+
+# Confounders (covariates)
+X = data.drop(columns=['PCH_CACFP_12_17', 'FOODINSEC_15_17', 'High_CACFP']).values
+
+# Standardize confounders
+scaler = StandardScaler()
+X_std = scaler.fit_transform(X)
+
+### 🌟 **1. Propensity Score Matching (PSM)**
+
+causal = CausalModel(Y, T, X_std)
+causal.est_propensity()
+
+print("\nBefore Matching Balance:")
+print(causal.summary_stats)
+
+causal.est_via_matching()
+
+print("\nMatching Estimates:")
+print(causal.estimates)
+
+print("\nAfter Matching Balance:")
+print(causal.summary_stats)
+
+### 🌟 **2. Inverse Probability of Treatment Weighting (IPTW)**
+
+# Logistic Regression for Propensity Scores
+ps_model = LogisticRegression(max_iter=1000).fit(X_std, T)
+propensity_scores = ps_model.predict_proba(X_std)[:, 1]
+
+# Ensure stable weights (clipping extreme propensity scores)
+eps = 1e-6
+propensity_scores = np.clip(propensity_scores, eps, 1 - eps)
+weights = T / propensity_scores + (1 - T) / (1 - propensity_scores)
+
+# Weighted regression to estimate causal effects
+X_treatment = sm.add_constant(T)
+iptw_model = sm.WLS(Y, X_treatment, weights=weights)
+iptw_results = iptw_model.fit()
+
+print("\nIPTW Regression Results:")
+print(iptw_results.summary())
+
+
+
+## 📌 **Additional Robust Causal Inference Methods**
+
+# Include these methods to strengthen your analysis:
+
+### 🌟 **3. Doubly Robust Estimation (Recommended)**
+seed = 12345
+
+from sklearn.ensemble import RandomForestRegressor
+from econml.dr import LinearDRLearner
+
+regressor = RandomForestRegressor(random_state=seed, n_jobs=-1)
+propensity = LogisticRegression(max_iter=1000, random_state=seed)
+
+dr_model = LinearDRLearner(model_regression=regressor,
+                           model_propensity=propensity)
+dr_model.fit(Y, T, X=X_std)
+treatment_effect = dr_model.ate(X_std)
+print(f"Doubly Robust ATE: {treatment_effect:.4f}")
+
+
+#%%
+import scipy.stats as stats
+import matplotlib.pyplot as plt
+import numpy as np
+# Assuming df is your original dataframe loaded already
+columns = [
+    'PCH_CACFP_12_17', 'PCT_OBESE_ADULTS17', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+    'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+    'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+    'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+    'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+    'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10','Urban'
+]
+
+# Drop NA values to maintain data quality
+data = df[columns].dropna()
+
+# Define treatment properly using median
+median_snap = data['PCH_CACFP_12_17'].median()
+data['High_CACFP'] = (data['PCH_CACFP_12_17'] > median_snap).astype(int)
+# 1️⃣ Descriptive statistics by group
+summary = data.groupby('High_CACFP')['PCT_OBESE_ADULTS17'].agg(
+    count='count',
+    mean='mean',
+    median='median',
+    std='std',
+    min='min',
+    max='max'
+)
+print("Descriptive stats:\n", summary)
+
+# 2️⃣ Independent t‑test (with variance check)
+levene_p = stats.levene(
+    data.loc[data.High_CACFP==1, 'PCT_OBESE_ADULTS17'],
+    data.loc[data.High_CACFP==0, 'PCT_OBESE_ADULTS17']
+).pvalue
+equal_var = True if levene_p > 0.05 else False
+
+t_stat, t_p = stats.ttest_ind(
+    data.loc[data.High_CACFP==1, 'PCT_OBESE_ADULTS17'],
+    data.loc[data.High_CACFP==0, 'PCT_OBESE_ADULTS17'],
+    equal_var=equal_var
+)
+print(f"\nLevene’s test p-value = {levene_p:.4f} → equal_var={equal_var}")
+print(f"T‑test: t = {t_stat:.3f}, p = {t_p:.4f}")
+
+# 3️⃣ Cohen’s d
+mean_diff = summary.loc[1,'mean'] - summary.loc[0,'mean']
+pooled_sd = np.sqrt(((summary.loc[1,'count']-1)*summary.loc[1,'std']**2 +
+                     (summary.loc[0,'count']-1)*summary.loc[0,'std']**2) /
+                    (summary.loc[1,'count'] + summary.loc[0,'count'] - 2))
+cohens_d = mean_diff / pooled_sd
+print(f"Cohen’s d = {cohens_d:.3f}")
+
+# 4️⃣ Mann–Whitney U test (non-parametric)
+u_stat, u_p = stats.mannwhitneyu(
+    data.loc[data.High_CACFP==1, 'PCT_OBESE_ADULTS17'],
+    data.loc[data.High_CACFP==0, 'PCT_OBESE_ADULTS17'],
+    alternative='two-sided'
+)
+print(f"Mann–Whitney U: U = {u_stat:.3f}, p = {u_p:.4f}")
+
+# 5️⃣ Visualizations
+plt.figure()
+data.boxplot(column='PCT_OBESE_ADULTS17', by='High_CACFP')
+plt.title('Obesity by CACFP Level')
+plt.suptitle('')
+plt.xlabel('High CACFP (1 = above median)')
+plt.ylabel('Obesity (%)')
+plt.show()
+
+plt.figure()
+data[data.High_CACFP==1]['PCT_OBESE_ADULTS17'].hist(alpha=0.7, label='High SNAP')
+data[data.High_CACFP==0]['PCT_OBESE_ADULTS17'].hist(alpha=0.7, label='Low SNAP')
+plt.legend()
+plt.title('Distribution of Obesity by CACFP Level')
+plt.xlabel('Obesity (%)')
+plt.ylabel('Frequency')
+plt.show()
+
+
+#%%
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from causalinference import CausalModel
+from sklearn.linear_model import LogisticRegression
+import statsmodels.api as sm
+
+
+
+# Assuming df is your original dataframe loaded already
+columns = [
+    'PCH_CACFP_12_17', 'PCT_OBESE_ADULTS17', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+    'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+    'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+    'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+    'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+    'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10','Urban'
+]
+
+# Drop NA values to maintain data quality
+data = df[columns].dropna()
+
+# Define treatment properly using median
+median_snap = data['PCH_CACFP_12_17'].median()
+data['High_CACFP'] = (data['PCH_CACFP_12_17'] > median_snap).astype(int)
+
+# Outcome and Treatment
+Y = data['PCT_OBESE_ADULTS17'].values
+T = data['High_CACFP'].values
+
+# Confounders (covariates)
+X = data.drop(columns=['PCH_CACFP_12_17', 'PCT_OBESE_ADULTS17', 'High_CACFP']).values
+
+# Standardize confounders
+scaler = StandardScaler()
+X_std = scaler.fit_transform(X)
+
+### 🌟 **1. Propensity Score Matching (PSM)**
+
+causal = CausalModel(Y, T, X_std)
+causal.est_propensity()
+
+print("\nBefore Matching Balance:")
+print(causal.summary_stats)
+
+causal.est_via_matching()
+
+print("\nMatching Estimates:")
+print(causal.estimates)
+
+print("\nAfter Matching Balance:")
+print(causal.summary_stats)
+
+### 🌟 **2. Inverse Probability of Treatment Weighting (IPTW)**
+
+# Logistic Regression for Propensity Scores
+ps_model = LogisticRegression(max_iter=1000).fit(X_std, T)
+propensity_scores = ps_model.predict_proba(X_std)[:, 1]
+
+# Ensure stable weights (clipping extreme propensity scores)
+eps = 1e-6
+propensity_scores = np.clip(propensity_scores, eps, 1 - eps)
+weights = T / propensity_scores + (1 - T) / (1 - propensity_scores)
+
+# Weighted regression to estimate causal effects
+X_treatment = sm.add_constant(T)
+iptw_model = sm.WLS(Y, X_treatment, weights=weights)
+iptw_results = iptw_model.fit()
+
+print("\nIPTW Regression Results:")
+print(iptw_results.summary())
+
+
+
+## 📌 **Additional Robust Causal Inference Methods**
+
+# Include these methods to strengthen your analysis:
+
+### 🌟 **3. Doubly Robust Estimation (Recommended)**
+seed = 12345
+
+from sklearn.ensemble import RandomForestRegressor
+from econml.dr import LinearDRLearner
+
+regressor = RandomForestRegressor(random_state=seed, n_jobs=-1)
+propensity = LogisticRegression(max_iter=1000, random_state=seed)
+
+dr_model = LinearDRLearner(model_regression=regressor,
+                           model_propensity=propensity)
+dr_model.fit(Y, T, X=X_std)
+treatment_effect = dr_model.ate(X_std)
+print(f"Doubly Robust ATE: {treatment_effect:.4f}")
+
+
+#%%
+import scipy.stats as stats
+import matplotlib.pyplot as plt
+import numpy as np
+# Assuming df is your original dataframe loaded already
+columns = [
+    'PCH_CACFP_12_17', 'PCT_DIABETES_ADULTS13', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+    'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+    'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+    'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+    'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+    'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10','Urban'
+]
+
+# Drop NA values to maintain data quality
+data = df[columns].dropna()
+
+# Define treatment properly using median
+median_snap = data['PCH_CACFP_12_17'].median()
+data['High_CACFP'] = (data['PCH_CACFP_12_17'] > median_snap).astype(int)
+# 1️⃣ Descriptive statistics by group
+summary = data.groupby('High_CACFP')['PCT_DIABETES_ADULTS13'].agg(
+    count='count',
+    mean='mean',
+    median='median',
+    std='std',
+    min='min',
+    max='max'
+)
+print("Descriptive stats:\n", summary)
+
+# 2️⃣ Independent t‑test (with variance check)
+levene_p = stats.levene(
+    data.loc[data.High_CACFP==1, 'PCT_DIABETES_ADULTS13'],
+    data.loc[data.High_CACFP==0, 'PCT_DIABETES_ADULTS13']
+).pvalue
+equal_var = True if levene_p > 0.05 else False
+
+t_stat, t_p = stats.ttest_ind(
+    data.loc[data.High_CACFP==1, 'PCT_DIABETES_ADULTS13'],
+    data.loc[data.High_CACFP==0, 'PCT_DIABETES_ADULTS13'],
+    equal_var=equal_var
+)
+print(f"\nLevene’s test p-value = {levene_p:.4f} → equal_var={equal_var}")
+print(f"T‑test: t = {t_stat:.3f}, p = {t_p:.4f}")
+
+# 3️⃣ Cohen’s d
+mean_diff = summary.loc[1,'mean'] - summary.loc[0,'mean']
+pooled_sd = np.sqrt(((summary.loc[1,'count']-1)*summary.loc[1,'std']**2 +
+                     (summary.loc[0,'count']-1)*summary.loc[0,'std']**2) /
+                    (summary.loc[1,'count'] + summary.loc[0,'count'] - 2))
+cohens_d = mean_diff / pooled_sd
+print(f"Cohen’s d = {cohens_d:.3f}")
+
+# 4️⃣ Mann–Whitney U test (non-parametric)
+u_stat, u_p = stats.mannwhitneyu(
+    data.loc[data.High_CACFP==1, 'PCT_DIABETES_ADULTS13'],
+    data.loc[data.High_CACFP==0, 'PCT_DIABETES_ADULTS13'],
+    alternative='two-sided'
+)
+print(f"Mann–Whitney U: U = {u_stat:.3f}, p = {u_p:.4f}")
+
+# 5️⃣ Visualizations
+plt.figure()
+data.boxplot(column='PCT_DIABETES_ADULTS13', by='High_CACFP')
+plt.title('Diabetes by CACFP Level')
+plt.suptitle('')
+plt.xlabel('High CACFP (1 = above median)')
+plt.ylabel('Diabetes (%)')
+plt.show()
+
+plt.figure()
+data[data.High_CACFP==1]['PCT_DIABETES_ADULTS13'].hist(alpha=0.7, label='High SNAP')
+data[data.High_CACFP==0]['PCT_DIABETES_ADULTS13'].hist(alpha=0.7, label='Low SNAP')
+plt.legend()
+plt.title('Distribution of Diabetes by CACFP Level')
+plt.xlabel('Diabetes (%)')
+plt.ylabel('Frequency')
+plt.show()
+
+#%%
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from causalinference import CausalModel
+from sklearn.linear_model import LogisticRegression
+import statsmodels.api as sm
+
+
+
+# Assuming df is your original dataframe loaded already
+columns = [
+    'PCH_CACFP_12_17', 'PCT_DIABETES_ADULTS13', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+    'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+    'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+    'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+    'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+    'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10','Urban'
+]
+
+# Drop NA values to maintain data quality
+data = df[columns].dropna()
+
+# Define treatment properly using median
+median_snap = data['PCH_CACFP_12_17'].median()
+data['High_CACFP'] = (data['PCH_CACFP_12_17'] > median_snap).astype(int)
+
+# Outcome and Treatment
+Y = data['PCT_DIABETES_ADULTS13'].values
+T = data['High_CACFP'].values
+
+# Confounders (covariates)
+X = data.drop(columns=['PCH_CACFP_12_17', 'PCT_DIABETES_ADULTS13', 'High_CACFP']).values
+
+# Standardize confounders
+scaler = StandardScaler()
+X_std = scaler.fit_transform(X)
+
+### 🌟 **1. Propensity Score Matching (PSM)**
+
+causal = CausalModel(Y, T, X_std)
+causal.est_propensity()
+
+print("\nBefore Matching Balance:")
+print(causal.summary_stats)
+
+causal.est_via_matching()
+
+print("\nMatching Estimates:")
+print(causal.estimates)
+
+print("\nAfter Matching Balance:")
+print(causal.summary_stats)
+
+### 🌟 **2. Inverse Probability of Treatment Weighting (IPTW)**
+
+# Logistic Regression for Propensity Scores
+ps_model = LogisticRegression(max_iter=1000).fit(X_std, T)
+propensity_scores = ps_model.predict_proba(X_std)[:, 1]
+
+# Ensure stable weights (clipping extreme propensity scores)
+eps = 1e-6
+propensity_scores = np.clip(propensity_scores, eps, 1 - eps)
+weights = T / propensity_scores + (1 - T) / (1 - propensity_scores)
+
+# Weighted regression to estimate causal effects
+X_treatment = sm.add_constant(T)
+iptw_model = sm.WLS(Y, X_treatment, weights=weights)
+iptw_results = iptw_model.fit()
+
+print("\nIPTW Regression Results:")
+print(iptw_results.summary())
+
+
+
+## 📌 **Additional Robust Causal Inference Methods**
+
+# Include these methods to strengthen your analysis:
+
+### 🌟 **3. Doubly Robust Estimation (Recommended)**
+seed = 12345
+
+from sklearn.ensemble import RandomForestRegressor
+from econml.dr import LinearDRLearner
+
+regressor = RandomForestRegressor(random_state=seed, n_jobs=-1)
+propensity = LogisticRegression(max_iter=1000, random_state=seed)
+
+dr_model = LinearDRLearner(model_regression=regressor,
+                           model_propensity=propensity)
+dr_model.fit(Y, T, X=X_std)
+treatment_effect = dr_model.ate(X_std)
+print(f"Doubly Robust ATE: {treatment_effect:.4f}")
+
+#%%
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from causalinference import CausalModel
+from sklearn.linear_model import LogisticRegression
+import statsmodels.api as sm
+
+
+
+# Assuming df is your original dataframe loaded already
+columns = [
+    'PCH_REDEMP_WICS_11_16', 'FOODINSEC_15_17', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+    'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+    'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+    'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+    'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+    'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10','Urban'
+]
+
+# Drop NA values to maintain data quality
+data = df[columns].dropna()
+
+# Define treatment properly using median
+median_snap = data['PCH_REDEMP_WICS_11_16'].median()
+data['High_WIC'] = (data['PCH_REDEMP_WICS_11_16'] > median_snap).astype(int)
+
+# Outcome and Treatment
+Y = data['FOODINSEC_15_17'].values
+T = data['High_WIC'].values
+
+# Confounders (covariates)
+X = data.drop(columns=['PCH_REDEMP_WICS_11_16', 'FOODINSEC_15_17', 'High_WIC']).values
+
+# Standardize confounders
+scaler = StandardScaler()
+X_std = scaler.fit_transform(X)
+
+### 🌟 **1. Propensity Score Matching (PSM)**
+
+causal = CausalModel(Y, T, X_std)
+causal.est_propensity()
+
+print("\nBefore Matching Balance:")
+print(causal.summary_stats)
+
+causal.est_via_matching()
+
+print("\nMatching Estimates:")
+print(causal.estimates)
+
+print("\nAfter Matching Balance:")
+print(causal.summary_stats)
+
+### 🌟 **2. Inverse Probability of Treatment Weighting (IPTW)**
+
+# Logistic Regression for Propensity Scores
+ps_model = LogisticRegression(max_iter=1000).fit(X_std, T)
+propensity_scores = ps_model.predict_proba(X_std)[:, 1]
+
+# Ensure stable weights (clipping extreme propensity scores)
+eps = 1e-6
+propensity_scores = np.clip(propensity_scores, eps, 1 - eps)
+weights = T / propensity_scores + (1 - T) / (1 - propensity_scores)
+
+# Weighted regression to estimate causal effects
+X_treatment = sm.add_constant(T)
+iptw_model = sm.WLS(Y, X_treatment, weights=weights)
+iptw_results = iptw_model.fit()
+
+print("\nIPTW Regression Results:")
+print(iptw_results.summary())
+
+
+
+## 📌 **Additional Robust Causal Inference Methods**
+
+# Include these methods to strengthen your analysis:
+
+### 🌟 **3. Doubly Robust Estimation (Recommended)**
+seed = 12345
+
+from sklearn.ensemble import RandomForestRegressor
+from econml.dr import LinearDRLearner
+
+regressor = RandomForestRegressor(random_state=seed, n_jobs=-1)
+propensity = LogisticRegression(max_iter=1000, random_state=seed)
+
+dr_model = LinearDRLearner(model_regression=regressor,
+                           model_propensity=propensity)
+dr_model.fit(Y, T, X=X_std)
+treatment_effect = dr_model.ate(X_std)
+print(f"Doubly Robust ATE: {treatment_effect:.4f}")
+
+#%%
+import scipy.stats as stats
+import matplotlib.pyplot as plt
+import numpy as np
+# Assuming df is your original dataframe loaded already
+columns = [
+    'PCH_PC_WIC_REDEMP_11_16', 'FOODINSEC_15_17', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+    'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+    'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+    'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+    'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+    'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10'
+]
+
+# Drop NA values to maintain data quality
+data = df[columns].dropna()
+
+# Define treatment properly using median
+median_snap = data['PCH_PC_WIC_REDEMP_11_16'].median()
+data['High_WIC_perC'] = (data['PCH_PC_WIC_REDEMP_11_16'] > median_snap).astype(int)
+# 1️⃣ Descriptive statistics by group
+summary = data.groupby('High_WIC_perC')['FOODINSEC_15_17'].agg(
+    count='count',
+    mean='mean',
+    median='median',
+    std='std',
+    min='min',
+    max='max'
+)
+print("Descriptive stats:\n", summary)
+
+# 2️⃣ Independent t‑test (with variance check)
+levene_p = stats.levene(
+    data.loc[data.High_WIC_perC==1, 'FOODINSEC_15_17'],
+    data.loc[data.High_WIC_perC==0, 'FOODINSEC_15_17']
+).pvalue
+equal_var = True if levene_p > 0.05 else False
+
+t_stat, t_p = stats.ttest_ind(
+    data.loc[data.High_WIC_perC==1, 'FOODINSEC_15_17'],
+    data.loc[data.High_WIC_perC==0, 'FOODINSEC_15_17'],
+    equal_var=equal_var
+)
+print(f"\nLevene’s test p-value = {levene_p:.4f} → equal_var={equal_var}")
+print(f"T‑test: t = {t_stat:.3f}, p = {t_p:.4f}")
+
+# 3️⃣ Cohen’s d
+mean_diff = summary.loc[1,'mean'] - summary.loc[0,'mean']
+pooled_sd = np.sqrt(((summary.loc[1,'count']-1)*summary.loc[1,'std']**2 +
+                     (summary.loc[0,'count']-1)*summary.loc[0,'std']**2) /
+                    (summary.loc[1,'count'] + summary.loc[0,'count'] - 2))
+cohens_d = mean_diff / pooled_sd
+print(f"Cohen’s d = {cohens_d:.3f}")
+
+# 4️⃣ Mann–Whitney U test (non-parametric)
+u_stat, u_p = stats.mannwhitneyu(
+    data.loc[data.High_WIC_perC==1, 'FOODINSEC_15_17'],
+    data.loc[data.High_WIC_perC==0, 'FOODINSEC_15_17'],
+    alternative='two-sided'
+)
+print(f"Mann–Whitney U: U = {u_stat:.3f}, p = {u_p:.4f}")
+
+# 5️⃣ Visualizations
+plt.figure()
+data.boxplot(column='FOODINSEC_15_17', by='High_WIC_perC')
+plt.title('Food Insecurity by WIC Level')
+plt.suptitle('')
+plt.xlabel('High WIC (1 = above median)')
+plt.ylabel('Food Insecurity (%)')
+plt.show()
+
+plt.figure()
+data[data.High_WIC_perC==1]['FOODINSEC_15_17'].hist(alpha=0.7, label='High WIC perC')
+data[data.High_WIC_perC==0]['FOODINSEC_15_17'].hist(alpha=0.7, label='Low WIC perC')
+plt.legend()
+plt.title('Distribution of Food Insecurity by SNAP Level')
+plt.xlabel('Food Insecurity (%)')
+plt.ylabel('Frequency')
+plt.show()
+
+#%%
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from causalinference import CausalModel
+from sklearn.linear_model import LogisticRegression
+import statsmodels.api as sm
+
+
+
+# # Assuming df is your original dataframe loaded already
+# columns = [
+#     'PCH_PC_WIC_REDEMP_11_16', 'FOODINSEC_15_17', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+#     'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+#     'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+#     'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+#     'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+#     'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10'
+# ]
+
+# # Drop NA values to maintain data quality
+# data = df[columns].dropna()
+
+# # Define treatment properly using median
+# median_snap = data['PCH_PC_WIC_REDEMP_11_16'].median()
+# data['High_WIC_perC'] = (data['PCH_PC_WIC_REDEMP_11_16'] > median_snap).astype(int)
+
+# Outcome and Treatment
+Y = data['FOODINSEC_15_17'].values
+T = data['High_WIC_perC'].values
+
+# Confounders (covariates)
+X = data.drop(columns=['PCH_PC_WIC_REDEMP_11_16', 'FOODINSEC_15_17', 'High_WIC_perC']).values
+
+# Standardize confounders
+scaler = StandardScaler()
+X_std = scaler.fit_transform(X)
+
+### 🌟 **1. Propensity Score Matching (PSM)**
+
+causal = CausalModel(Y, T, X_std)
+causal.est_propensity()
+
+print("\nBefore Matching Balance:")
+print(causal.summary_stats)
+
+causal.est_via_matching()
+
+print("\nMatching Estimates:")
+print(causal.estimates)
+
+print("\nAfter Matching Balance:")
+print(causal.summary_stats)
+
+### 🌟 **2. Inverse Probability of Treatment Weighting (IPTW)**
+
+# Logistic Regression for Propensity Scores
+ps_model = LogisticRegression(max_iter=1000).fit(X_std, T)
+propensity_scores = ps_model.predict_proba(X_std)[:, 1]
+
+# Ensure stable weights (clipping extreme propensity scores)
+eps = 1e-6
+propensity_scores = np.clip(propensity_scores, eps, 1 - eps)
+weights = T / propensity_scores + (1 - T) / (1 - propensity_scores)
+
+# Weighted regression to estimate causal effects
+X_treatment = sm.add_constant(T)
+iptw_model = sm.WLS(Y, X_treatment, weights=weights)
+iptw_results = iptw_model.fit()
+
+print("\nIPTW Regression Results:")
+print(iptw_results.summary())
+
+
+
+## 📌 **Additional Robust Causal Inference Methods**
+
+# Include these methods to strengthen your analysis:
+
+### 🌟 **3. Doubly Robust Estimation (Recommended)**
+seed = 12345
+
+from sklearn.ensemble import RandomForestRegressor
+from econml.dr import LinearDRLearner
+
+regressor = RandomForestRegressor(random_state=seed, n_jobs=-1)
+propensity = LogisticRegression(max_iter=1000, random_state=seed)
+
+dr_model = LinearDRLearner(model_regression=regressor,
+                           model_propensity=propensity)
+dr_model.fit(Y, T, X=X_std)
+treatment_effect = dr_model.ate(X_std)
+print(f"Doubly Robust ATE: {treatment_effect:.4f}")
+
+
+#%%
+import scipy.stats as stats
+import matplotlib.pyplot as plt
+import numpy as np
+# Assuming df is your original dataframe loaded already
+columns = [
+    'PCH_PC_WIC_REDEMP_11_16', 'PCT_OBESE_ADULTS17', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+    'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+    'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+    'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+    'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+    'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10'
+]
+
+# Drop NA values to maintain data quality
+data = df[columns].dropna()
+
+# Define treatment properly using median
+median_snap = data['PCH_PC_WIC_REDEMP_11_16'].median()
+data['High_WIC_perC'] = (data['PCH_PC_WIC_REDEMP_11_16'] > median_snap).astype(int)
+# 1️⃣ Descriptive statistics by group
+summary = data.groupby('High_WIC_perC')['PCT_OBESE_ADULTS17'].agg(
+    count='count',
+    mean='mean',
+    median='median',
+    std='std',
+    min='min',
+    max='max'
+)
+print("Descriptive stats:\n", summary)
+
+# 2️⃣ Independent t‑test (with variance check)
+levene_p = stats.levene(
+    data.loc[data.High_WIC_perC==1, 'PCT_OBESE_ADULTS17'],
+    data.loc[data.High_WIC_perC==0, 'PCT_OBESE_ADULTS17']
+).pvalue
+equal_var = True if levene_p > 0.05 else False
+
+t_stat, t_p = stats.ttest_ind(
+    data.loc[data.High_WIC_perC==1, 'PCT_OBESE_ADULTS17'],
+    data.loc[data.High_WIC_perC==0, 'PCT_OBESE_ADULTS17'],
+    equal_var=equal_var
+)
+print(f"\nLevene’s test p-value = {levene_p:.4f} → equal_var={equal_var}")
+print(f"T‑test: t = {t_stat:.3f}, p = {t_p:.4f}")
+
+# 3️⃣ Cohen’s d
+mean_diff = summary.loc[1,'mean'] - summary.loc[0,'mean']
+pooled_sd = np.sqrt(((summary.loc[1,'count']-1)*summary.loc[1,'std']**2 +
+                     (summary.loc[0,'count']-1)*summary.loc[0,'std']**2) /
+                    (summary.loc[1,'count'] + summary.loc[0,'count'] - 2))
+cohens_d = mean_diff / pooled_sd
+print(f"Cohen’s d = {cohens_d:.3f}")
+
+# 4️⃣ Mann–Whitney U test (non-parametric)
+u_stat, u_p = stats.mannwhitneyu(
+    data.loc[data.High_WIC_perC==1, 'PCT_OBESE_ADULTS17'],
+    data.loc[data.High_WIC_perC==0, 'PCT_OBESE_ADULTS17'],
+    alternative='two-sided'
+)
+print(f"Mann–Whitney U: U = {u_stat:.3f}, p = {u_p:.4f}")
+
+# 5️⃣ Visualizations
+plt.figure()
+data.boxplot(column='PCT_OBESE_ADULTS17', by='High_WIC_perC')
+plt.title('Obesity by WIC Level')
+plt.suptitle('')
+plt.xlabel('High WIC (1 = above median)')
+plt.ylabel('Obesity (%)')
+plt.show()
+
+plt.figure()
+data[data.High_WIC_perC==1]['PCT_OBESE_ADULTS17'].hist(alpha=0.7, label='High WIC perC')
+data[data.High_WIC_perC==0]['PCT_OBESE_ADULTS17'].hist(alpha=0.7, label='Low WIC perC')
+plt.legend()
+plt.title('Distribution of Obesity by SNAP Level')
+plt.xlabel('Obesity (%)')
+plt.ylabel('Frequency')
+plt.show()
+
+
+#%%
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from causalinference import CausalModel
+from sklearn.linear_model import LogisticRegression
+import statsmodels.api as sm
+
+
+
+# # Assuming df is your original dataframe loaded already
+# columns = [
+#     'PCH_PC_WIC_REDEMP_11_16', 'FOODINSEC_15_17', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+#     'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+#     'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+#     'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+#     'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+#     'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10'
+# ]
+
+# # Drop NA values to maintain data quality
+# data = df[columns].dropna()
+
+# # Define treatment properly using median
+# median_snap = data['PCH_PC_WIC_REDEMP_11_16'].median()
+# data['High_WIC_perC'] = (data['PCH_PC_WIC_REDEMP_11_16'] > median_snap).astype(int)
+
+# Outcome and Treatment
+Y = data['PCT_OBESE_ADULTS17'].values
+T = data['High_WIC_perC'].values
+
+# Confounders (covariates)
+X = data.drop(columns=['PCH_PC_WIC_REDEMP_11_16', 'PCT_OBESE_ADULTS17', 'High_WIC_perC']).values
+
+# Standardize confounders
+scaler = StandardScaler()
+X_std = scaler.fit_transform(X)
+
+### 🌟 **1. Propensity Score Matching (PSM)**
+
+causal = CausalModel(Y, T, X_std)
+causal.est_propensity()
+
+print("\nBefore Matching Balance:")
+print(causal.summary_stats)
+
+causal.est_via_matching()
+
+print("\nMatching Estimates:")
+print(causal.estimates)
+
+print("\nAfter Matching Balance:")
+print(causal.summary_stats)
+
+### 🌟 **2. Inverse Probability of Treatment Weighting (IPTW)**
+
+# Logistic Regression for Propensity Scores
+ps_model = LogisticRegression(max_iter=1000).fit(X_std, T)
+propensity_scores = ps_model.predict_proba(X_std)[:, 1]
+
+# Ensure stable weights (clipping extreme propensity scores)
+eps = 1e-6
+propensity_scores = np.clip(propensity_scores, eps, 1 - eps)
+weights = T / propensity_scores + (1 - T) / (1 - propensity_scores)
+
+# Weighted regression to estimate causal effects
+X_treatment = sm.add_constant(T)
+iptw_model = sm.WLS(Y, X_treatment, weights=weights)
+iptw_results = iptw_model.fit()
+
+print("\nIPTW Regression Results:")
+print(iptw_results.summary())
+
+
+
+## 📌 **Additional Robust Causal Inference Methods**
+
+# Include these methods to strengthen your analysis:
+
+### 🌟 **3. Doubly Robust Estimation (Recommended)**
+seed = 12345
+
+from sklearn.ensemble import RandomForestRegressor
+from econml.dr import LinearDRLearner
+
+regressor = RandomForestRegressor(random_state=seed, n_jobs=-1)
+propensity = LogisticRegression(max_iter=1000, random_state=seed)
+
+dr_model = LinearDRLearner(model_regression=regressor,
+                           model_propensity=propensity)
+dr_model.fit(Y, T, X=X_std)
+treatment_effect = dr_model.ate(X_std)
+print(f"Doubly Robust ATE: {treatment_effect:.4f}")
+
+#%%
+import scipy.stats as stats
+import matplotlib.pyplot as plt
+import numpy as np
+# Assuming df is your original dataframe loaded already
+columns = [
+    'PCH_PC_WIC_REDEMP_11_16', 'PCT_DIABETES_ADULTS13', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+    'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+    'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+    'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+    'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+    'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10'
+]
+
+# Drop NA values to maintain data quality
+data = df[columns].dropna()
+
+# Define treatment properly using median
+median_snap = data['PCH_PC_WIC_REDEMP_11_16'].median()
+data['High_WIC_perC'] = (data['PCH_PC_WIC_REDEMP_11_16'] > median_snap).astype(int)
+# 1️⃣ Descriptive statistics by group
+summary = data.groupby('High_WIC_perC')['PCT_DIABETES_ADULTS13'].agg(
+    count='count',
+    mean='mean',
+    median='median',
+    std='std',
+    min='min',
+    max='max'
+)
+print("Descriptive stats:\n", summary)
+
+# 2️⃣ Independent t‑test (with variance check)
+levene_p = stats.levene(
+    data.loc[data.High_WIC_perC==1, 'PCT_DIABETES_ADULTS13'],
+    data.loc[data.High_WIC_perC==0, 'PCT_DIABETES_ADULTS13']
+).pvalue
+equal_var = True if levene_p > 0.05 else False
+
+t_stat, t_p = stats.ttest_ind(
+    data.loc[data.High_WIC_perC==1, 'PCT_DIABETES_ADULTS13'],
+    data.loc[data.High_WIC_perC==0, 'PCT_DIABETES_ADULTS13'],
+    equal_var=equal_var
+)
+print(f"\nLevene’s test p-value = {levene_p:.4f} → equal_var={equal_var}")
+print(f"T‑test: t = {t_stat:.3f}, p = {t_p:.4f}")
+
+# 3️⃣ Cohen’s d
+mean_diff = summary.loc[1,'mean'] - summary.loc[0,'mean']
+pooled_sd = np.sqrt(((summary.loc[1,'count']-1)*summary.loc[1,'std']**2 +
+                     (summary.loc[0,'count']-1)*summary.loc[0,'std']**2) /
+                    (summary.loc[1,'count'] + summary.loc[0,'count'] - 2))
+cohens_d = mean_diff / pooled_sd
+print(f"Cohen’s d = {cohens_d:.3f}")
+
+# 4️⃣ Mann–Whitney U test (non-parametric)
+u_stat, u_p = stats.mannwhitneyu(
+    data.loc[data.High_WIC_perC==1, 'PCT_DIABETES_ADULTS13'],
+    data.loc[data.High_WIC_perC==0, 'PCT_DIABETES_ADULTS13'],
+    alternative='two-sided'
+)
+print(f"Mann–Whitney U: U = {u_stat:.3f}, p = {u_p:.4f}")
+
+# 5️⃣ Visualizations
+plt.figure()
+data.boxplot(column='PCT_DIABETES_ADULTS13', by='High_WIC_perC')
+plt.title('Diabetes by WIC Level')
+plt.suptitle('')
+plt.xlabel('High WIC (1 = above median)')
+plt.ylabel('Diabetes (%)')
+plt.show()
+
+plt.figure()
+data[data.High_WIC_perC==1]['PCT_DIABETES_ADULTS13'].hist(alpha=0.7, label='High WIC perC')
+data[data.High_WIC_perC==0]['PCT_DIABETES_ADULTS13'].hist(alpha=0.7, label='Low WIC perC')
+plt.legend()
+plt.title('Distribution of Diabetes by SNAP Level')
+plt.xlabel('Diabetes (%)')
+plt.ylabel('Frequency')
+plt.show()
+
+#%%
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from causalinference import CausalModel
+from sklearn.linear_model import LogisticRegression
+import statsmodels.api as sm
+
+
+
+# # Assuming df is your original dataframe loaded already
+# columns = [
+#     'PCH_PC_WIC_REDEMP_11_16', 'FOODINSEC_15_17', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+#     'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+#     'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+#     'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+#     'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+#     'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10'
+# ]
+
+# # Drop NA values to maintain data quality
+# data = df[columns].dropna()
+
+# # Define treatment properly using median
+# median_snap = data['PCH_PC_WIC_REDEMP_11_16'].median()
+# data['High_WIC_perC'] = (data['PCH_PC_WIC_REDEMP_11_16'] > median_snap).astype(int)
+
+# Outcome and Treatment
+Y = data['PCT_DIABETES_ADULTS13'].values
+T = data['High_WIC_perC'].values
+
+# Confounders (covariates)
+X = data.drop(columns=['PCH_PC_WIC_REDEMP_11_16', 'PCT_DIABETES_ADULTS13', 'High_WIC_perC']).values
+
+# Standardize confounders
+scaler = StandardScaler()
+X_std = scaler.fit_transform(X)
+
+### 🌟 **1. Propensity Score Matching (PSM)**
+
+causal = CausalModel(Y, T, X_std)
+causal.est_propensity()
+
+print("\nBefore Matching Balance:")
+print(causal.summary_stats)
+
+causal.est_via_matching()
+
+print("\nMatching Estimates:")
+print(causal.estimates)
+
+print("\nAfter Matching Balance:")
+print(causal.summary_stats)
+
+### 🌟 **2. Inverse Probability of Treatment Weighting (IPTW)**
+
+# Logistic Regression for Propensity Scores
+ps_model = LogisticRegression(max_iter=1000).fit(X_std, T)
+propensity_scores = ps_model.predict_proba(X_std)[:, 1]
+
+# Ensure stable weights (clipping extreme propensity scores)
+eps = 1e-6
+propensity_scores = np.clip(propensity_scores, eps, 1 - eps)
+weights = T / propensity_scores + (1 - T) / (1 - propensity_scores)
+
+# Weighted regression to estimate causal effects
+X_treatment = sm.add_constant(T)
+iptw_model = sm.WLS(Y, X_treatment, weights=weights)
+iptw_results = iptw_model.fit()
+
+print("\nIPTW Regression Results:")
+print(iptw_results.summary())
+
+
+
+## 📌 **Additional Robust Causal Inference Methods**
+
+# Include these methods to strengthen your analysis:
+
+### 🌟 **3. Doubly Robust Estimation (Recommended)**
+seed = 12345
+
+from sklearn.ensemble import RandomForestRegressor
+from econml.dr import LinearDRLearner
+
+regressor = RandomForestRegressor(random_state=seed, n_jobs=-1)
+propensity = LogisticRegression(max_iter=1000, random_state=seed)
+
+dr_model = LinearDRLearner(model_regression=regressor,
+                           model_propensity=propensity)
+dr_model.fit(Y, T, X=X_std)
+treatment_effect = dr_model.ate(X_std)
+print(f"Doubly Robust ATE: {treatment_effect:.4f}")
+
+#%%
