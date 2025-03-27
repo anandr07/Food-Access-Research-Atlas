@@ -162,3 +162,62 @@ def merge_with_csv(excel_df, csv_grouped_df, columns_from_csv):
     # Merge on 'State' and 'County' using a left join
     merged_df = pd.merge(excel_df, csv_grouped_df[columns_from_csv], on=['State', 'County'], how='left')
     return merged_df
+
+
+def main():
+    # File paths for the Excel and CSV files
+    excel_file_path = '/data/FoodEnvironmentAtlas.xls'
+    csv_file_path = '/data/FoodAccessResearchAtlasData2019.csv'
+    
+    # Define the sheet names to load from the Excel file
+    sheet_names = [
+        'Supplemental Data - County', 'Supplemental Data - State', 'ACCESS', 'STORES',
+        'RESTAURANTS', 'ASSISTANCE', 'INSECURITY', 'TAXES', 'LOCAL', 'HEALTH', 'SOCIOECONOMIC'
+    ]
+    
+    # Load all sheets from the Excel file
+    dataframes = load_excel_sheets(excel_file_path, sheet_names)
+    
+    # Clean and map the state column in the base DataFrame
+    base_df = clean_state_column(dataframes['Supplemental Data - County'], state_column='State')
+    
+    # Define the order of sheets to join (base sheet first)
+    sheets_to_join = [
+        'Supplemental Data - County', 'ACCESS', 'STORES',
+        'RESTAURANTS', 'ASSISTANCE', 'INSECURITY', 'TAXES', 'LOCAL', 'HEALTH', 'SOCIOECONOMIC'
+    ]
+    
+    # Merge additional sheets into the base DataFrame
+    merged_excel_df = merge_excel_sheets(base_df, dataframes, join_keys=['State', 'County'], sheets_to_join=sheets_to_join)
+    
+    # Save the merged Excel DataFrame to a new Excel file (optional)
+    merged_excel_df.to_excel('kk.xlsx', index=False)
+    
+    # Load the merged Excel file into a DataFrame
+    excel_df = pd.read_excel('kk.xlsx', sheet_name='Sheet1')
+    
+    # Load and process the CSV file, grouping by State and County
+    grouped_csv_df = load_csv_and_group(csv_file_path, STATE_MAPPING)
+    
+    # Specify the columns from the CSV to merge with the Excel DataFrame
+    columns_from_csv = [
+        'State', 'County', 'Urban', 'Pop2010', 'OHU2010', 'GroupQuartersFlag', 'NUMGQTRS', 'PCTGQTRS',
+        'LILATracts_1And10', 'LILATracts_halfAnd10', 'LILATracts_1And20', 'LILATracts_Vehicle', 'HUNVFlag',
+        'LowIncomeTracts', 'PovertyRate', 'MedianFamilyIncome', 'TractLOWI', 'TractKids', 'TractSeniors',
+        'TractWhite', 'TractBlack', 'TractAsian', 'TractNHOPI', 'TractAIAN', 'TractOMultir', 'TractHispanic',
+        'TractHUNV', 'TractSNAP'
+    ]
+    
+    # Merge the processed Excel DataFrame with the CSV data
+    final_df = merge_with_csv(excel_df, grouped_csv_df, columns_from_csv)
+    
+    # Optionally, save the final merged DataFrame to an Excel file
+    final_df.to_excel('/data/final_merged.xlsx', index=False)
+    
+    # Return the final DataFrame for further processing if needed
+    return final_df
+
+
+if __name__ == '__main__':
+    final_dataframe = main()
+    print("Final DataFrame shape:", final_dataframe.shape)
