@@ -219,3 +219,9 @@ def processing():
 
 final_dataframe = processing()
 print("Final DataFrame shape:", final_dataframe.shape)
+
+#%%[md]
+# # Data Visualization
+
+#%%
+
