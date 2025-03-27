@@ -1,0 +1,464 @@
+digraph {
+	T [label=High_SNAP]
+	Y [label=FOODINSEC_15_17]
+	CensusTract [label=CensusTract]
+	CensusTract -> T
+	CensusTract -> Y
+	State [label=State]
+	State -> T
+	State -> Y
+	County [label=County]
+	County -> T
+	County -> Y
+	Urban [label=Urban]
+	Urban -> T
+	Urban -> Y
+	Pop2010 [label=Pop2010]
+	Pop2010 -> T
+	Pop2010 -> Y
+	OHU2010 [label=OHU2010]
+	OHU2010 -> T
+	OHU2010 -> Y
+	GroupQuartersFlag [label=GroupQuartersFlag]
+	GroupQuartersFlag -> T
+	GroupQuartersFlag -> Y
+	NUMGQTRS [label=NUMGQTRS]
+	NUMGQTRS -> T
+	NUMGQTRS -> Y
+	PCTGQTRS [label=PCTGQTRS]
+	PCTGQTRS -> T
+	PCTGQTRS -> Y
+	LILATracts_1And10 [label=LILATracts_1And10]
+	LILATracts_1And10 -> T
+	LILATracts_1And10 -> Y
+	LILATracts_halfAnd10 [label=LILATracts_halfAnd10]
+	LILATracts_halfAnd10 -> T
+	LILATracts_halfAnd10 -> Y
+	LILATracts_1And20 [label=LILATracts_1And20]
+	LILATracts_1And20 -> T
+	LILATracts_1And20 -> Y
+	LILATracts_Vehicle [label=LILATracts_Vehicle]
+	LILATracts_Vehicle -> T
+	LILATracts_Vehicle -> Y
+	HUNVFlag [label=HUNVFlag]
+	HUNVFlag -> T
+	HUNVFlag -> Y
+	LowIncomeTracts [label=LowIncomeTracts]
+	LowIncomeTracts -> T
+	LowIncomeTracts -> Y
+	PovertyRate [label=PovertyRate]
+	PovertyRate -> T
+	PovertyRate -> Y
+	MedianFamilyIncome [label=MedianFamilyIncome]
+	MedianFamilyIncome -> T
+	MedianFamilyIncome -> Y
+	LA1and10 [label=LA1and10]
+	LA1and10 -> T
+	LA1and10 -> Y
+	LAhalfand10 [label=LAhalfand10]
+	LAhalfand10 -> T
+	LAhalfand10 -> Y
+	LA1and20 [label=LA1and20]
+	LA1and20 -> T
+	LA1and20 -> Y
+	LATracts_half [label=LATracts_half]
+	LATracts_half -> T
+	LATracts_half -> Y
+	LATracts1 [label=LATracts1]
+	LATracts1 -> T
+	LATracts1 -> Y
+	LATracts10 [label=LATracts10]
+	LATracts10 -> T
+	LATracts10 -> Y
+	LATracts20 [label=LATracts20]
+	LATracts20 -> T
+	LATracts20 -> Y
+	LATractsVehicle_20 [label=LATractsVehicle_20]
+	LATractsVehicle_20 -> T
+	LATractsVehicle_20 -> Y
+	LAPOP1_10 [label=LAPOP1_10]
+	LAPOP1_10 -> T
+	LAPOP1_10 -> Y
+	LAPOP05_10 [label=LAPOP05_10]
+	LAPOP05_10 -> T
+	LAPOP05_10 -> Y
+	LAPOP1_20 [label=LAPOP1_20]
+	LAPOP1_20 -> T
+	LAPOP1_20 -> Y
+	LALOWI1_10 [label=LALOWI1_10]
+	LALOWI1_10 -> T
+	LALOWI1_10 -> Y
+	LALOWI05_10 [label=LALOWI05_10]
+	LALOWI05_10 -> T
+	LALOWI05_10 -> Y
+	LALOWI1_20 [label=LALOWI1_20]
+	LALOWI1_20 -> T
+	LALOWI1_20 -> Y
+	lapophalf [label=lapophalf]
+	lapophalf -> T
+	lapophalf -> Y
+	lapophalfshare [label=lapophalfshare]
+	lapophalfshare -> T
+	lapophalfshare -> Y
+	lalowihalf [label=lalowihalf]
+	lalowihalf -> T
+	lalowihalf -> Y
+	lalowihalfshare [label=lalowihalfshare]
+	lalowihalfshare -> T
+	lalowihalfshare -> Y
+	lakidshalf [label=lakidshalf]
+	lakidshalf -> T
+	lakidshalf -> Y
+	lakidshalfshare [label=lakidshalfshare]
+	lakidshalfshare -> T
+	lakidshalfshare -> Y
+	laseniorshalf [label=laseniorshalf]
+	laseniorshalf -> T
+	laseniorshalf -> Y
+	laseniorshalfshare [label=laseniorshalfshare]
+	laseniorshalfshare -> T
+	laseniorshalfshare -> Y
+	lawhitehalf [label=lawhitehalf]
+	lawhitehalf -> T
+	lawhitehalf -> Y
+	lawhitehalfshare [label=lawhitehalfshare]
+	lawhitehalfshare -> T
+	lawhitehalfshare -> Y
+	lablackhalf [label=lablackhalf]
+	lablackhalf -> T
+	lablackhalf -> Y
+	lablackhalfshare [label=lablackhalfshare]
+	lablackhalfshare -> T
+	lablackhalfshare -> Y
+	laasianhalf [label=laasianhalf]
+	laasianhalf -> T
+	laasianhalf -> Y
+	laasianhalfshare [label=laasianhalfshare]
+	laasianhalfshare -> T
+	laasianhalfshare -> Y
+	lanhopihalf [label=lanhopihalf]
+	lanhopihalf -> T
+	lanhopihalf -> Y
+	lanhopihalfshare [label=lanhopihalfshare]
+	lanhopihalfshare -> T
+	lanhopihalfshare -> Y
+	laaianhalf [label=laaianhalf]
+	laaianhalf -> T
+	laaianhalf -> Y
+	laaianhalfshare [label=laaianhalfshare]
+	laaianhalfshare -> T
+	laaianhalfshare -> Y
+	laomultirhalf [label=laomultirhalf]
+	laomultirhalf -> T
+	laomultirhalf -> Y
+	laomultirhalfshare [label=laomultirhalfshare]
+	laomultirhalfshare -> T
+	laomultirhalfshare -> Y
+	lahisphalf [label=lahisphalf]
+	lahisphalf -> T
+	lahisphalf -> Y
+	lahisphalfshare [label=lahisphalfshare]
+	lahisphalfshare -> T
+	lahisphalfshare -> Y
+	lahunvhalf [label=lahunvhalf]
+	lahunvhalf -> T
+	lahunvhalf -> Y
+	lahunvhalfshare [label=lahunvhalfshare]
+	lahunvhalfshare -> T
+	lahunvhalfshare -> Y
+	lasnaphalf [label=lasnaphalf]
+	lasnaphalf -> T
+	lasnaphalf -> Y
+	lasnaphalfshare [label=lasnaphalfshare]
+	lasnaphalfshare -> T
+	lasnaphalfshare -> Y
+	lapop1 [label=lapop1]
+	lapop1 -> T
+	lapop1 -> Y
+	lapop1share [label=lapop1share]
+	lapop1share -> T
+	lapop1share -> Y
+	lalowi1 [label=lalowi1]
+	lalowi1 -> T
+	lalowi1 -> Y
+	lalowi1share [label=lalowi1share]
+	lalowi1share -> T
+	lalowi1share -> Y
+	lakids1 [label=lakids1]
+	lakids1 -> T
+	lakids1 -> Y
+	lakids1share [label=lakids1share]
+	lakids1share -> T
+	lakids1share -> Y
+	laseniors1 [label=laseniors1]
+	laseniors1 -> T
+	laseniors1 -> Y
+	laseniors1share [label=laseniors1share]
+	laseniors1share -> T
+	laseniors1share -> Y
+	lawhite1 [label=lawhite1]
+	lawhite1 -> T
+	lawhite1 -> Y
+	lawhite1share [label=lawhite1share]
+	lawhite1share -> T
+	lawhite1share -> Y
+	lablack1 [label=lablack1]
+	lablack1 -> T
+	lablack1 -> Y
+	lablack1share [label=lablack1share]
+	lablack1share -> T
+	lablack1share -> Y
+	laasian1 [label=laasian1]
+	laasian1 -> T
+	laasian1 -> Y
+	laasian1share [label=laasian1share]
+	laasian1share -> T
+	laasian1share -> Y
+	lanhopi1 [label=lanhopi1]
+	lanhopi1 -> T
+	lanhopi1 -> Y
+	lanhopi1share [label=lanhopi1share]
+	lanhopi1share -> T
+	lanhopi1share -> Y
+	laaian1 [label=laaian1]
+	laaian1 -> T
+	laaian1 -> Y
+	laaian1share [label=laaian1share]
+	laaian1share -> T
+	laaian1share -> Y
+	laomultir1 [label=laomultir1]
+	laomultir1 -> T
+	laomultir1 -> Y
+	laomultir1share [label=laomultir1share]
+	laomultir1share -> T
+	laomultir1share -> Y
+	lahisp1 [label=lahisp1]
+	lahisp1 -> T
+	lahisp1 -> Y
+	lahisp1share [label=lahisp1share]
+	lahisp1share -> T
+	lahisp1share -> Y
+	lahunv1 [label=lahunv1]
+	lahunv1 -> T
+	lahunv1 -> Y
+	lahunv1share [label=lahunv1share]
+	lahunv1share -> T
+	lahunv1share -> Y
+	lasnap1 [label=lasnap1]
+	lasnap1 -> T
+	lasnap1 -> Y
+	lasnap1share [label=lasnap1share]
+	lasnap1share -> T
+	lasnap1share -> Y
+	lapop10 [label=lapop10]
+	lapop10 -> T
+	lapop10 -> Y
+	lapop10share [label=lapop10share]
+	lapop10share -> T
+	lapop10share -> Y
+	lalowi10 [label=lalowi10]
+	lalowi10 -> T
+	lalowi10 -> Y
+	lalowi10share [label=lalowi10share]
+	lalowi10share -> T
+	lalowi10share -> Y
+	lakids10 [label=lakids10]
+	lakids10 -> T
+	lakids10 -> Y
+	lakids10share [label=lakids10share]
+	lakids10share -> T
+	lakids10share -> Y
+	laseniors10 [label=laseniors10]
+	laseniors10 -> T
+	laseniors10 -> Y
+	laseniors10share [label=laseniors10share]
+	laseniors10share -> T
+	laseniors10share -> Y
+	lawhite10 [label=lawhite10]
+	lawhite10 -> T
+	lawhite10 -> Y
+	lawhite10share [label=lawhite10share]
+	lawhite10share -> T
+	lawhite10share -> Y
+	lablack10 [label=lablack10]
+	lablack10 -> T
+	lablack10 -> Y
+	lablack10share [label=lablack10share]
+	lablack10share -> T
+	lablack10share -> Y
+	laasian10 [label=laasian10]
+	laasian10 -> T
+	laasian10 -> Y
+	laasian10share [label=laasian10share]
+	laasian10share -> T
+	laasian10share -> Y
+	lanhopi10 [label=lanhopi10]
+	lanhopi10 -> T
+	lanhopi10 -> Y
+	lanhopi10share [label=lanhopi10share]
+	lanhopi10share -> T
+	lanhopi10share -> Y
+	laaian10 [label=laaian10]
+	laaian10 -> T
+	laaian10 -> Y
+	laaian10share [label=laaian10share]
+	laaian10share -> T
+	laaian10share -> Y
+	laomultir10 [label=laomultir10]
+	laomultir10 -> T
+	laomultir10 -> Y
+	laomultir10share [label=laomultir10share]
+	laomultir10share -> T
+	laomultir10share -> Y
+	lahisp10 [label=lahisp10]
+	lahisp10 -> T
+	lahisp10 -> Y
+	lahisp10share [label=lahisp10share]
+	lahisp10share -> T
+	lahisp10share -> Y
+	lahunv10 [label=lahunv10]
+	lahunv10 -> T
+	lahunv10 -> Y
+	lahunv10share [label=lahunv10share]
+	lahunv10share -> T
+	lahunv10share -> Y
+	lasnap10 [label=lasnap10]
+	lasnap10 -> T
+	lasnap10 -> Y
+	lasnap10share [label=lasnap10share]
+	lasnap10share -> T
+	lasnap10share -> Y
+	lapop20 [label=lapop20]
+	lapop20 -> T
+	lapop20 -> Y
+	lapop20share [label=lapop20share]
+	lapop20share -> T
+	lapop20share -> Y
+	lalowi20 [label=lalowi20]
+	lalowi20 -> T
+	lalowi20 -> Y
+	lalowi20share [label=lalowi20share]
+	lalowi20share -> T
+	lalowi20share -> Y
+	lakids20 [label=lakids20]
+	lakids20 -> T
+	lakids20 -> Y
+	lakids20share [label=lakids20share]
+	lakids20share -> T
+	lakids20share -> Y
+	laseniors20 [label=laseniors20]
+	laseniors20 -> T
+	laseniors20 -> Y
+	laseniors20share [label=laseniors20share]
+	laseniors20share -> T
+	laseniors20share -> Y
+	lawhite20 [label=lawhite20]
+	lawhite20 -> T
+	lawhite20 -> Y
+	lawhite20share [label=lawhite20share]
+	lawhite20share -> T
+	lawhite20share -> Y
+	lablack20 [label=lablack20]
+	lablack20 -> T
+	lablack20 -> Y
+	lablack20share [label=lablack20share]
+	lablack20share -> T
+	lablack20share -> Y
+	laasian20 [label=laasian20]
+	laasian20 -> T
+	laasian20 -> Y
+	laasian20share [label=laasian20share]
+	laasian20share -> T
+	laasian20share -> Y
+	lanhopi20 [label=lanhopi20]
+	lanhopi20 -> T
+	lanhopi20 -> Y
+	lanhopi20share [label=lanhopi20share]
+	lanhopi20share -> T
+	lanhopi20share -> Y
+	laaian20 [label=laaian20]
+	laaian20 -> T
+	laaian20 -> Y
+	laaian20share [label=laaian20share]
+	laaian20share -> T
+	laaian20share -> Y
+	laomultir20 [label=laomultir20]
+	laomultir20 -> T
+	laomultir20 -> Y
+	laomultir20share [label=laomultir20share]
+	laomultir20share -> T
+	laomultir20share -> Y
+	lahisp20 [label=lahisp20]
+	lahisp20 -> T
+	lahisp20 -> Y
+	lahisp20share [label=lahisp20share]
+	lahisp20share -> T
+	lahisp20share -> Y
+	lahunv20 [label=lahunv20]
+	lahunv20 -> T
+	lahunv20 -> Y
+	lahunv20share [label=lahunv20share]
+	lahunv20share -> T
+	lahunv20share -> Y
+	lasnap20 [label=lasnap20]
+	lasnap20 -> T
+	lasnap20 -> Y
+	lasnap20share [label=lasnap20share]
+	lasnap20share -> T
+	lasnap20share -> Y
+	TractLOWI [label=TractLOWI]
+	TractLOWI -> T
+	TractLOWI -> Y
+	TractKids [label=TractKids]
+	TractKids -> T
+	TractKids -> Y
+	TractSeniors [label=TractSeniors]
+	TractSeniors -> T
+	TractSeniors -> Y
+	TractWhite [label=TractWhite]
+	TractWhite -> T
+	TractWhite -> Y
+	TractBlack [label=TractBlack]
+	TractBlack -> T
+	TractBlack -> Y
+	TractAsian [label=TractAsian]
+	TractAsian -> T
+	TractAsian -> Y
+	TractNHOPI [label=TractNHOPI]
+	TractNHOPI -> T
+	TractNHOPI -> Y
+	TractAIAN [label=TractAIAN]
+	TractAIAN -> T
+	TractAIAN -> Y
+	TractOMultir [label=TractOMultir]
+	TractOMultir -> T
+	TractOMultir -> Y
+	TractHispanic [label=TractHispanic]
+	TractHispanic -> T
+	TractHispanic -> Y
+	TractHUNV [label=TractHUNV]
+	TractHUNV -> T
+	TractHUNV -> Y
+	TractSNAP [label=TractSNAP]
+	TractSNAP -> T
+	TractSNAP -> Y
+	White_pct [label=White_pct]
+	White_pct -> T
+	White_pct -> Y
+	Black_pct [label=Black_pct]
+	Black_pct -> T
+	Black_pct -> Y
+	Asian_pct [label=Asian_pct]
+	Asian_pct -> T
+	Asian_pct -> Y
+	Hispanic_pct [label=Hispanic_pct]
+	Hispanic_pct -> T
+	Hispanic_pct -> Y
+	Seniors_pct [label=Seniors_pct]
+	Seniors_pct -> T
+	Seniors_pct -> Y
+	pop_per_house [label=pop_per_house]
+	pop_per_house -> T
+	pop_per_house -> Y
+	T -> Y
+}

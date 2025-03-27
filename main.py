@@ -166,8 +166,8 @@ def merge_with_csv(excel_df, csv_grouped_df, columns_from_csv):
 
 def processing():
     # File paths for the Excel and CSV files
-    excel_file_path = '/data/FoodEnvironmentAtlas.xls'
-    csv_file_path = '/data/FoodAccessResearchAtlasData2019.csv'
+    excel_file_path = 'FoodEnvironmentAtlas.xls'
+    csv_file_path = 'FoodAccessResearchAtlasData2019.csv'
     
     # Define the sheet names to load from the Excel file
     sheet_names = [
@@ -212,7 +212,7 @@ def processing():
     final_df = merge_with_csv(excel_df, grouped_csv_df, columns_from_csv)
     
     # Optionally, save the final merged DataFrame to an Excel file
-    final_df.to_excel('/data/final_merged.xlsx', index=False)
+    final_df.to_excel('final_merged.xlsx', index=False)
     
     # Return the final DataFrame for further processing if needed
     return final_df
@@ -229,7 +229,7 @@ import seaborn as sns
 import pandas as pd
 
 # Load the main data
-data = pd.read_csv('../data/FoodAccessResearchAtlasData2019.csv')
+data = pd.read_csv('FoodAccessResearchAtlasData2019.csv')
 
 # ======================================================================
 # Section 1: Basic Food Access & Demographic Visualizations
@@ -518,7 +518,7 @@ plt.show()
 
 #%%
 import pandas as pd
-df = pd.read_excel('final.xls',sheet_name ='Sheet1')
+df = pd.read_excel('final_merged.xlsx',sheet_name ='Sheet1')
 
 #%%
 # Install required packages if not already installed
