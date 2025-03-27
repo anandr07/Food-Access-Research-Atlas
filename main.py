@@ -219,3 +219,296 @@ def processing():
 
 final_dataframe = processing()
 print("Final DataFrame shape:", final_dataframe.shape)
+
+#%%[md]
+# # Data Visualization
+
+#%%
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+
+# Load the main data
+data = pd.read_csv('../data/FoodAccessResearchAtlasData2019.csv')
+
+# ======================================================================
+# Section 1: Basic Food Access & Demographic Visualizations
+# ======================================================================
+selected_columns = [
+    'Pop2010', 'lapophalf', 'lakidshalf', 'laseniorshalf', 'lalowihalf',
+    'lablackhalf', 'lawhitehalf', 'lahunvhalf', 'lasnaphalf', 'TractSNAP',
+    'LowIncomeTracts', 'LATracts_half', 'LATractsVehicle_20'
+]
+viz_data = data[selected_columns]
+
+# Distribution of Population in 2010
+plt.figure(figsize=(10, 6))
+sns.histplot(viz_data['Pop2010'], bins=50, kde=True)
+plt.title('Distribution of Population in Census Tracts (2010)')
+plt.xlabel('Population in 2010')
+plt.ylabel('Frequency')
+plt.grid(True)
+plt.show()
+
+# Correlation Heatmap of Selected Features
+plt.figure(figsize=(12, 10))
+sns.heatmap(viz_data.corr(), annot=True, cmap='coolwarm')
+plt.title('Correlation Heatmap of Selected Features')
+plt.show()
+
+# Bar Chart for Low Income Tracts
+plt.figure(figsize=(8, 6))
+viz_data['LowIncomeTracts'].value_counts().plot(kind='bar', color='skyblue')
+plt.title('Count of Low Income vs Non-Low Income Tracts')
+plt.xlabel('Low Income Tracts')
+plt.ylabel('Count')
+plt.xticks(ticks=[0, 1], labels=['Non-Low Income', 'Low Income'], rotation=0)
+plt.grid(axis='y')
+plt.show()
+
+# Bar Chart: Tracts with Limited Food Access (Half-mile)
+plt.figure(figsize=(8, 6))
+viz_data['LATracts_half'].value_counts().plot(kind='bar', color='orange')
+plt.title('Tracts with Limited Food Access (Half-mile)')
+plt.xlabel('Limited Access Tracts (Half-mile)')
+plt.ylabel('Count')
+plt.xticks(ticks=[0, 1], labels=['No', 'Yes'], rotation=0)
+plt.grid(axis='y')
+plt.show()
+
+# Scatter Plot: Population vs SNAP Recipients
+plt.figure(figsize=(10, 6))
+sns.scatterplot(x='Pop2010', y='TractSNAP', data=viz_data, alpha=0.5)
+plt.title('Population vs SNAP Recipients')
+plt.xlabel('Population (2010)')
+plt.ylabel('SNAP Recipients')
+plt.grid(True)
+plt.show()
+
+
+# ======================================================================
+# Section 2: Demographic Analysis
+# ======================================================================
+# Create additional demographic percentage columns
+data['White_pct'] = data['TractWhite'] / data['Pop2010'] * 100
+data['Black_pct'] = data['TractBlack'] / data['Pop2010'] * 100
+data['Asian_pct'] = data['TractAsian'] / data['Pop2010'] * 100
+data['Hispanic_pct'] = data['TractHispanic'] / data['Pop2010'] * 100
+data['Seniors_pct'] = data['TractSeniors'] / data['Pop2010'] * 100
+
+# Urban vs Rural Analysis: Count and Population Distribution
+plt.figure(figsize=(10, 6))
+sns.countplot(x='Urban', data=data)
+plt.title('Count of Urban vs Rural Census Tracts')
+plt.xlabel('Urban Indicator (0 = Rural, 1 = Urban)')
+plt.ylabel('Number of Tracts')
+plt.grid(axis='y')
+plt.show()
+
+plt.figure(figsize=(10, 6))
+sns.boxplot(x='Urban', y='Pop2010', data=data)
+plt.title('Population Distribution by Urban vs Rural Tracts')
+plt.xlabel('Urban Indicator (0 = Rural, 1 = Urban)')
+plt.ylabel('Population (2010)')
+plt.show()
+
+# Racial Composition Histograms
+fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+sns.histplot(data['White_pct'], bins=50, kde=True, ax=axes[0,0])
+axes[0,0].set_title('White Population (%)')
+sns.histplot(data['Black_pct'], bins=50, kde=True, ax=axes[0,1])
+axes[0,1].set_title('Black Population (%)')
+sns.histplot(data['Asian_pct'], bins=50, kde=True, ax=axes[0,2])
+axes[0,2].set_title('Asian Population (%)')
+sns.histplot(data['Hispanic_pct'], bins=50, kde=True, ax=axes[1,0])
+axes[1,0].set_title('Hispanic Population (%)')
+sns.histplot(data['Seniors_pct'], bins=50, kde=True, ax=axes[1,1])
+axes[1,1].set_title('Seniors (%)')
+axes[1,2].axis('off')
+plt.tight_layout()
+plt.show()
+
+# Correlation Heatmap: Demographics & Food Access Measures
+cols_for_corr = ['lapophalfshare', 'TractSNAP', 'LowIncomeTracts', 
+                 'White_pct', 'Black_pct', 'Asian_pct', 'Hispanic_pct', 'Seniors_pct']
+plt.figure(figsize=(10, 8))
+sns.heatmap(data[cols_for_corr].corr(), annot=True, cmap='coolwarm')
+plt.title('Correlation Heatmap: Demographics & Food Access Measures')
+plt.show()
+
+
+# ======================================================================
+# Section 3: Housing Units & Population Density Analysis
+# ======================================================================
+# Compute population per housing unit
+data['pop_per_house'] = data['Pop2010'] / data['OHU2010']
+
+# Distribution of Occupied Housing Units (OHU2010)
+plt.figure(figsize=(10, 6))
+sns.histplot(data['OHU2010'], bins=50, kde=True)
+plt.title("Distribution of Occupied Housing Units (OHU2010)")
+plt.xlabel("Occupied Housing Units (2010)")
+plt.ylabel("Frequency")
+plt.grid(True)
+plt.show()
+
+# Distribution of Population per Housing Unit
+plt.figure(figsize=(10, 6))
+sns.histplot(data['pop_per_house'], bins=50, kde=True)
+plt.title("Population per Housing Unit (Pop2010/OHU2010)")
+plt.xlabel("Population per Housing Unit")
+plt.ylabel("Frequency")
+plt.grid(True)
+plt.show()
+
+# Scatter Plot: Population vs Occupied Housing Units
+plt.figure(figsize=(10, 6))
+sns.scatterplot(x='OHU2010', y='Pop2010', data=data, alpha=0.5)
+plt.title("Population vs Occupied Housing Units")
+plt.xlabel("Occupied Housing Units (OHU2010)")
+plt.ylabel("Population (Pop2010)")
+plt.grid(True)
+plt.show()
+
+# Box Plot: Population per Housing Unit by Urban/Rural
+plt.figure(figsize=(10, 6))
+sns.boxplot(x='Urban', y='pop_per_house', data=data)
+plt.title("Population per Housing Unit by Urban vs Rural")
+plt.xlabel("Urban (0 = Rural, 1 = Urban)")
+plt.ylabel("Population per Housing Unit")
+plt.show()
+
+
+# ======================================================================
+# Section 4: Group Quarters Analysis
+# ======================================================================
+# Count of Group Quarters Flag
+plt.figure(figsize=(10, 6))
+sns.countplot(x='GroupQuartersFlag', data=data)
+plt.title("Group Quarters Flag Count")
+plt.xlabel("Group Quarters Flag (0 = No, 1 = Yes)")
+plt.ylabel("Count")
+plt.grid(axis='y')
+plt.show()
+
+# Distribution of Number and Percentage of Group Quarters
+fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+sns.histplot(data['NUMGQTRS'], bins=50, kde=True, ax=axes[0])
+axes[0].set_title("Number of Group Quarters (NUMGQTRS)")
+axes[0].set_xlabel("Number of Group Quarters")
+axes[0].set_ylabel("Frequency")
+sns.histplot(data['PCTGQTRS'], bins=50, kde=True, ax=axes[1])
+axes[1].set_title("Percentage Group Quarters (PCTGQTRS)")
+axes[1].set_xlabel("Percentage Group Quarters")
+axes[1].set_ylabel("Frequency")
+plt.tight_layout()
+plt.show()
+
+# Scatter Plot: NUMGQTRS vs PCTGQTRS by Urban Status
+plt.figure(figsize=(10, 6))
+sns.scatterplot(x='NUMGQTRS', y='PCTGQTRS', hue='Urban', data=data, alpha=0.5)
+plt.title("NUMGQTRS vs PCTGQTRS by Urban/Rural")
+plt.xlabel("Number of Group Quarters")
+plt.ylabel("Percentage Group Quarters")
+plt.grid(True)
+plt.show()
+
+
+# ======================================================================
+# Section 5: Vehicle Access Analysis
+# ======================================================================
+# Count of Households with No Vehicle (LATractsVehicle_20)
+plt.figure(figsize=(10, 6))
+sns.countplot(x='LATractsVehicle_20', data=data)
+plt.title("Households with No Vehicle (LATractsVehicle_20)")
+plt.xlabel("LATractsVehicle_20 (0 = No, 1 = Yes)")
+plt.ylabel("Count")
+plt.grid(axis='y')
+plt.show()
+
+# Urban vs Rural Comparison for No Vehicle Indicator
+plt.figure(figsize=(10, 6))
+sns.countplot(x='Urban', hue='LATractsVehicle_20', data=data)
+plt.title("Urban vs Rural: Households with No Vehicle")
+plt.xlabel("Urban (0 = Rural, 1 = Urban)")
+plt.ylabel("Count")
+plt.legend(title="LATractsVehicle_20", labels=["No", "Yes"])
+plt.grid(axis='y')
+plt.show()
+
+
+# ======================================================================
+# Section 6: Extended Analysis: Binary Indicators & Demographics
+# ======================================================================
+# Frequency Distributions for Selected Binary Food Access Indicators (LILA Family)
+binary_lila_cols = ['LILATracts_1And10', 'LILATracts_halfAnd10', 'LILATracts_1And20', 'LILATracts_Vehicle']
+for col in binary_lila_cols:
+    plt.figure(figsize=(8,6))
+    sns.countplot(x=col, data=data)
+    plt.title(f"Frequency Distribution of {col}")
+    plt.xlabel(col)
+    plt.ylabel("Count")
+    plt.grid(axis='y')
+    plt.show()
+
+# Urban vs Rural Comparison for LA1and10 (Example)
+plt.figure(figsize=(10,6))
+sns.countplot(x='Urban', hue='LA1and10', data=data)
+plt.title("Urban vs Rural Comparison for LA1and10")
+plt.xlabel("Urban (0 = Rural, 1 = Urban)")
+plt.ylabel("Count")
+plt.legend(title="LA1and10", labels=["No", "Yes"])
+plt.grid(axis='y')
+plt.show()
+
+# Racial Limited Access Shares in Urban Areas
+racial_limited_measures = ['lawhitehalfshare', 'lablackhalfshare', 'laasianhalfshare', 'lahisphalfshare']
+urban_data = data[data['Urban'] == 1]
+urban_means = urban_data[racial_limited_measures].mean()
+plt.figure(figsize=(10,6))
+urban_means.plot(kind='bar', color='skyblue')
+plt.title("Average Limited Access Share by Race in Urban Tracts")
+plt.xlabel("Racial Group")
+plt.ylabel("Average Limited Access Share (%)")
+plt.grid(axis='y')
+plt.show()
+
+# State-Level Proportion of Low Income Tracts
+state_low_income = data.groupby('State')['LowIncomeTracts'].mean().sort_values()
+plt.figure(figsize=(12,8))
+state_low_income.plot(kind='barh', color='coral')
+plt.title("Average Proportion of Low Income Tracts by State")
+plt.xlabel("Proportion of Low Income Tracts")
+plt.ylabel("State")
+plt.grid(axis='x')
+plt.show()
+
+# Violin Plot: Group Quarters Percentage by Urban Status
+plt.figure(figsize=(10,6))
+sns.violinplot(x='Urban', y='PCTGQTRS', data=data)
+plt.title("Group Quarters Percentage by Urban Status")
+plt.xlabel("Urban (0 = Rural, 1 = Urban)")
+plt.ylabel("Percentage Group Quarters")
+plt.grid(axis='y')
+plt.show()
+
+# Scatter Plot: Limited Access Share for Kids vs Seniors
+plt.figure(figsize=(10,6))
+sns.scatterplot(x='lakidshalfshare', y='laseniorshalfshare', data=data, alpha=0.5)
+plt.title("Limited Access Share: Kids vs Seniors (Urban)")
+plt.xlabel("Kids Limited Access Share (%)")
+plt.ylabel("Seniors Limited Access Share (%)")
+plt.grid(True)
+plt.show()
+
+
+# ======================================================================
+# Section 7: Extended Correlation Analysis
+# ======================================================================
+extended_cols = ['Pop2010', 'OHU2010', 'lapophalf', 'LAPOP05_10', 'LAPOP1_10', 'LAPOP1_20',
+                 'LALOWI1_10', 'LALOWI05_10', 'LALOWI1_20',
+                 'lawhitehalfshare', 'lablackhalfshare', 'laasianhalfshare', 'lahisphalfshare']
+plt.figure(figsize=(14,12))
+sns.heatmap(data[extended_cols].corr(), annot=True, cmap='viridis')
+plt.title("Extended Correlation Heatmap: Housing, Food Access & Racial Limited Access Measures")
+plt.show()
