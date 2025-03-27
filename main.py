@@ -112,3 +112,53 @@ def merge_excel_sheets(base_df, dataframes, join_keys=['State', 'County'], sheet
     print("Merged Excel DataFrame preview:")
     print(final_df.head())
     return final_df
+def load_csv_and_group(file_path, state_mapping):
+    """
+    Load a CSV file and group data by State and County.
+    
+    Steps:
+      - Read the CSV file.
+      - Remove the text ' County' from the County column.
+      - Map full state names to abbreviations.
+      - Group by State and County, computing the mean for numeric columns.
+    
+    Parameters:
+        file_path (str): Path to the CSV file.
+        state_mapping (dict): State mapping dictionary.
+    
+    Returns:
+        pd.DataFrame: Grouped DataFrame with the mean values.
+    """
+    df = pd.read_csv(file_path)
+    
+    # Remove ' County' from the County column
+    df['County'] = df['County'].str.replace(' County', '')
+    
+    # Create a reverse mapping (full state name -> abbreviation)
+    reverse_map = {v: k for k, v in state_mapping.items()}
+    df['State'] = df['State'].map(reverse_map)
+    
+    # Group by 'State' and 'County' and calculate the mean for numeric columns
+    grouped_df = df.groupby(['State', 'County'], as_index=False).mean()
+    return grouped_df
+
+
+def merge_with_csv(excel_df, csv_grouped_df, columns_from_csv):
+    """
+    Merge the Excel DataFrame with the grouped CSV DataFrame.
+    
+    Parameters:
+        excel_df (pd.DataFrame): DataFrame from the processed Excel file.
+        csv_grouped_df (pd.DataFrame): Grouped DataFrame from the CSV.
+        columns_from_csv (list): List of columns from the CSV to merge.
+    
+    Returns:
+        pd.DataFrame: The final merged DataFrame.
+    """
+    # Remove any extraneous column if it exists
+    if 'Unnamed: 0' in excel_df.columns:
+        excel_df.drop(['Unnamed: 0'], axis=1, inplace=True)
+    
+    # Merge on 'State' and 'County' using a left join
+    merged_df = pd.merge(excel_df, csv_grouped_df[columns_from_csv], on=['State', 'County'], how='left')
+    return merged_df
