@@ -164,7 +164,7 @@ def merge_with_csv(excel_df, csv_grouped_df, columns_from_csv):
     return merged_df
 
 
-def main():
+def processing():
     # File paths for the Excel and CSV files
     excel_file_path = '/data/FoodEnvironmentAtlas.xls'
     csv_file_path = '/data/FoodAccessResearchAtlasData2019.csv'
@@ -217,7 +217,5 @@ def main():
     # Return the final DataFrame for further processing if needed
     return final_df
 
-
-if __name__ == '__main__':
-    final_dataframe = main()
-    print("Final DataFrame shape:", final_dataframe.shape)
+final_dataframe = processing()
+print("Final DataFrame shape:", final_dataframe.shape)
