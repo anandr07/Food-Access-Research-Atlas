@@ -4508,3 +4508,265 @@ for col in columns_to_plot:
     # 8. Show the plot
     plt.show()
 
+
+
+# %%
+import pandas as pd
+import numpy as np
+
+# Machine Learning libraries
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+
+# Cross-validation utilities
+from sklearn.model_selection import StratifiedKFold, cross_val_predict
+
+# Metrics and plotting
+from sklearn.metrics import (
+    confusion_matrix, ConfusionMatrixDisplay,
+    classification_report, accuracy_score,
+    roc_curve, roc_auc_score,
+    precision_recall_curve, average_precision_score
+)
+import matplotlib.pyplot as plt
+
+# 1. Load the dataset
+df = pd.read_csv('FoodAccessResearchAtlasData2019_cleaned.csv')
+
+# 2. Drop columns that won't be used or cause data leakage
+df.drop(['CensusTract','State','County'], axis=1, errors='ignore', inplace=True)
+
+# 3. Drop rows with missing values (optional approach, adjust as needed)
+df.dropna(inplace=True)
+
+# 4. Define the target and a safe set of features (no direct LILA/LA flags)
+target = 'LILATracts_1And10'
+selected_features = [
+    'Urban',
+    'Pop2010',
+    'OHU2010',
+    'GroupQuartersFlag',
+    'NUMGQTRS',
+    'PCTGQTRS',
+    'HUNVFlag',
+    'PovertyRate',
+    'MedianFamilyIncome',
+    'TractKids',
+    'TractSeniors',
+    'TractWhite',
+    'TractBlack',
+    'TractAsian',
+    'TractNHOPI',
+    'TractAIAN',
+    'TractOMultir',
+    'TractHispanic',
+    'TractHUNV',
+    'TractSNAP'
+]
+
+# 5. Subset the DataFrame
+X = df[selected_features].copy()
+y = df[target].copy()
+
+# Convert 'Urban' to dummies if it's string-based categorical
+if X['Urban'].dtype == 'object':
+    X = pd.get_dummies(X, columns=['Urban'], drop_first=True)
+
+# 6. Define Pipelines for each model
+lr_pipeline = Pipeline([
+    ('scaler', StandardScaler()),
+    ('lr', LogisticRegression(max_iter=1000, random_state=42))
+])
+
+rf_pipeline = Pipeline([
+    ('scaler', StandardScaler()),
+    ('rf', RandomForestClassifier(n_estimators=100, random_state=42))
+])
+
+xgb_pipeline = Pipeline([
+    ('scaler', StandardScaler()),
+    ('xgb', XGBClassifier(use_label_encoder=False, eval_metric='logloss', random_state=42))
+])
+
+# 7. Helper function for cross-validation evaluation
+def cross_val_evaluate(model_name, pipeline, X, y, n_splits=5, random_state=42):
+    """
+    Performs Stratified k-Fold cross validation using cross_val_predict.
+    Prints confusion matrix, classification report, and calculates ROC-AUC.
+    Also plots ROC and Precision-Recall curves based on aggregated out-of-fold predictions.
+    """
+    print(f"=== {model_name} ===")
+
+    # Define cross-validation strategy
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+
+    # OOF predictions for class labels
+    y_pred = cross_val_predict(pipeline, X, y, cv=skf, method='predict')
+
+    # OOF predicted probabilities (for ROC, AUC, etc.)
+    y_pred_prob = cross_val_predict(pipeline, X, y, cv=skf, method='predict_proba')[:, 1]
+
+    # Accuracy & classification report
+    print("Accuracy:", accuracy_score(y, y_pred))
+    print(classification_report(y, y_pred))
+
+    # Confusion Matrix
+    cm = confusion_matrix(y, y_pred)
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+    disp.plot(cmap='Blues')
+    plt.title(f'{model_name} - Confusion Matrix (Cross-Val)')
+    plt.show()
+
+    # ROC & AUC
+    auc_score = roc_auc_score(y, y_pred_prob)
+    fpr, tpr, _ = roc_curve(y, y_pred_prob)
+
+    plt.figure()
+    plt.plot(fpr, tpr, label=f'ROC curve (AUC = {auc_score:.2f})')
+    plt.plot([0, 1], [0, 1], 'r--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title(f'{model_name} - ROC Curve (Cross-Val)')
+    plt.legend(loc="lower right")
+    plt.show()
+
+    # Precision-Recall Curve
+    precision, recall, _ = precision_recall_curve(y, y_pred_prob)
+    avg_precision = average_precision_score(y, y_pred_prob)
+
+    plt.figure()
+    plt.plot(recall, precision, label=f'AP = {avg_precision:.2f}')
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title(f'{model_name} - Precision-Recall Curve (Cross-Val)')
+    plt.legend(loc="upper right")
+    plt.show()
+
+# 8. Evaluate each pipeline via cross-validation
+pipelines = {
+    'Logistic Regression': lr_pipeline,
+    'Random Forest': rf_pipeline,
+    'XGBoost': xgb_pipeline
+}
+
+for name, pipe in pipelines.items():
+    cross_val_evaluate(name, pipe, X, y, n_splits=5, random_state=42)
+    print("\n" + "="*60 + "\n")
+
+# 9. Retrieve & Plot Feature Importances **only** from Random Forest
+print("=== Random Forest Feature Importances ===")
+
+# We must fit the Random Forest on the entire dataset (X, y)
+# so we have a single final model from which to extract importances.
+rf_pipeline.fit(X, y)
+
+# Access the trained RandomForest in the pipeline
+rf_model = rf_pipeline.named_steps['rf']
+
+# Retrieve feature importances
+importances = rf_model.feature_importances_
+feature_names = X.columns
+
+# Pair feature names with importances and sort
+feat_imp_df = pd.DataFrame({
+    'Feature': feature_names,
+    'Importance': importances
+}).sort_values('Importance', ascending=False)
+
+# Print them in descending order
+print(feat_imp_df)
+
+# Plot the feature importances
+plt.figure(figsize=(8, 6))
+plt.barh(feat_imp_df['Feature'], feat_imp_df['Importance'], color='skyblue')
+plt.gca().invert_yaxis()  # so the top feature is at the top
+plt.title('Random Forest - Feature Importances (Final Model)')
+plt.xlabel('Importance Score')
+plt.ylabel('Feature')
+plt.show()
+
+
+# %%
+import pandas as pd
+import numpy as np
+import scipy.stats as stats
+import matplotlib.pyplot as plt
+
+# Load the dataset
+df = pd.read_csv('FoodAccessResearchAtlasData2019_cleaned.csv')
+
+# Define the columns for which to compute percentage variables relative to OHU2010
+cols_to_engineer = [
+    'TractLOWI', 'TractKids', 'TractSeniors', 'TractWhite', 'TractBlack',
+    'TractAsian', 'TractNHOPI', 'TractAIAN', 'TractOMultir', 'TractHispanic',
+    'TractHUNV', 'TractSNAP'
+]
+
+# Ensure OHU2010 exists and replace zeros to avoid division by zero
+if 'OHU2010' not in df.columns:
+    raise KeyError("The column 'OHU2010' is missing from the dataset.")
+df['OHU2010'].replace(0, np.nan, inplace=True)
+
+# Create new percentage features
+for col in cols_to_engineer:
+    new_col = f"Pct_{col}"
+    df[new_col] = (df[col] / df['OHU2010']) * 100
+
+# Define the list of columns to check:
+# Use the engineered percentage columns for the first set and then add the remaining variables as is.
+# columns_to_check = [f"Pct_{col}" for col in cols_to_engineer] + [
+#     'Pop2010', 'OHU2010', 'NUMGQTRS', 'MedianFamilyIncome', 'PovertyRate'
+# ]
+columns_to_check = ['OHU2010', 'NUMGQTRS', 'MedianFamilyIncome', 'PovertyRate']
+# Create a working dataframe that includes LILATracts_1And10 and the columns of interest.
+# Drop any rows with missing values in these columns.
+data = df[['LILATracts_1And10'] + columns_to_check].dropna()
+
+# Loop through each column to perform the analysis
+for col in columns_to_check:
+    print(f"\n--- Analysis for {col} ---")
+
+    # 1️⃣ Descriptive statistics by group (grouped by LILATracts_1And10)
+    summary = data.groupby('LILATracts_1And10')[col].agg(
+        count='count',
+        mean='mean',
+        median='median',
+        std='std',
+        min='min',
+        max='max'
+    )
+    print("Descriptive stats:\n", summary)
+
+    # Split the data into the two groups defined by LILATracts_1And10
+    group1 = data.loc[data['LILATracts_1And10'] == 1, col]
+    group0 = data.loc[data['LILATracts_1And10'] == 0, col]
+
+    # 2️⃣ Levene's test to check for equal variances
+    levene_p = stats.levene(group1, group0).pvalue
+    equal_var = True if levene_p > 0.05 else False
+    print(f"Levene’s test p-value = {levene_p:.4f} → equal_var = {equal_var}")
+
+    # 3️⃣ Independent t‑test (using equal_var based on Levene's result)
+    t_stat, t_p = stats.ttest_ind(group1, group0, equal_var=equal_var)
+    print(f"T‑test: t = {t_stat:.3f}, p = {t_p:.4f}")
+
+    # 4️⃣ Cohen’s d for effect size
+    mean_diff = summary.loc[1, 'mean'] - summary.loc[0, 'mean']
+    pooled_sd = np.sqrt(((summary.loc[1, 'count'] - 1) * summary.loc[1, 'std'] ** 2 +
+                         (summary.loc[0, 'count'] - 1) * summary.loc[0, 'std'] ** 2) /
+                        (summary.loc[1, 'count'] + summary.loc[0, 'count'] - 2))
+    cohens_d = mean_diff / pooled_sd
+    print(f"Cohen’s d = {cohens_d:.3f}")
+
+    # 5️⃣ Mann–Whitney U test (non-parametric alternative)
+    u_stat, u_p = stats.mannwhitneyu(group1, group0, alternative='two-sided')
+    print(f"Mann–Whitney U: U = {u_stat:.3f}, p = {u_p:.4f}")
+# %%
+
+
