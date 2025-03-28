@@ -4218,3 +4218,293 @@ dr_model.fit(Y, T, X=X_std)
 treatment_effect = dr_model.ate(X_std)
 print(f"Doubly Robust ATE: {treatment_effect:.4f}")
 
+#%%
+import pandas as pd
+
+# Step 1: Load the CSV file
+df = pd.read_csv("FoodAccessResearchAtlasData2019.csv")
+
+# Step 2: Calculate the number of NA values in each column
+na_counts = df.isna().sum()
+
+# Step 3: Find columns with NA count > 50000, drop them
+cols_to_drop = na_counts[na_counts > 50000].index
+df_dropped_cols = df.drop(columns=cols_to_drop)
+
+# Step 4: Drop all rows with any NA values
+df_clean = df_dropped_cols.dropna()
+
+# (Optional) Check the shape of the resulting DataFrame
+print("Shape of cleaned DataFrame:", df_clean.shape)
+
+# Step 5: Save the cleaned dataset to a new CSV file
+output_path = "FoodAccessResearchAtlasData2019_cleaned.csv"
+df_clean.to_csv(output_path, index=False)
+
+# Preview the first 5 rows of the cleaned DataFrame
+df_clean.head()
+
+# %%
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# 1. Load your cleaned dataset
+df_clean = pd.read_csv("FoodAccessResearchAtlasData2019_cleaned.csv")
+
+# 2. Define the columns we want to visualize
+columns_to_plot = [
+    "MedianFamilyIncome", 
+    "PovertyRate", 
+    "NUMGQTRS", 
+    "OHU2010", 
+    "TractSNAP", 
+    "TractHUNV", 
+    "TractLOWI"
+]
+
+# 3. Split the data by food desert status
+df_food_desert_yes = df_clean[df_clean["LILATracts_1And10"] == 1]
+df_food_desert_no  = df_clean[df_clean["LILATracts_1And10"] == 0]
+
+# 4. Define specific CDF thresholds for certain columns
+cdf_thresholds = {
+    "MedianFamilyIncome": 0.9,
+    "PovertyRate": 0.8,
+    "TractSNAP": 0.75,
+    "TractLOWI": 0.75
+}
+
+def ecdf(data):
+    """
+    Given a 1D array of values (data), returns x and y arrays
+    for the empirical CDF: y = fraction of data <= x.
+    """
+    x_sorted = np.sort(data)
+    n = len(x_sorted)
+    # y goes from 1/n up to 1, but this is a matter of style
+    y = np.arange(1, n+1) / n
+    return x_sorted, y
+
+for col in columns_to_plot:
+    # Drop NA values
+    data_yes = df_food_desert_yes[col].dropna()
+    data_no  = df_food_desert_no[col].dropna()
+    
+    # If one subset is empty, skip plotting
+    if data_yes.empty or data_no.empty:
+        continue
+    
+    # Generate x and y for eCDF
+    x_yes, y_yes = ecdf(data_yes)
+    x_no,  y_no  = ecdf(data_no)
+    
+    # Create a new figure for this variable
+    plt.figure(figsize=(7, 5))
+    
+    # Plot eCDF for "Food Desert = Yes"
+    plt.plot(x_yes, y_yes, label="Food Desert = Yes")
+    plt.fill_between(x_yes, 0, y_yes, alpha=0.2)
+    
+    # Plot eCDF for "Food Desert = No"
+    plt.plot(x_no, y_no, label="Food Desert = No")
+    plt.fill_between(x_no, 0, y_no, alpha=0.2)
+    
+    # Check if this column has a threshold we want to highlight
+    if col in cdf_thresholds:
+        cdf_value = cdf_thresholds[col]
+        
+        # Compute the quantile (inverse of eCDF) for "Yes" and "No"
+        val_yes = data_yes.quantile(cdf_value)
+        val_no  = data_no.quantile(cdf_value)
+        
+        # Draw a horizontal dotted line at y = cdf_value
+        plt.axhline(y=cdf_value, color='gray', linestyle=':', alpha=0.6)
+        
+        # Mark "Yes" quantile
+        plt.axvline(val_yes, color='C0', linestyle='--', alpha=0.7)
+        plt.plot(val_yes, cdf_value, 'o', color='C0')
+        # Text label slightly offset
+        plt.text(
+            val_yes, cdf_value, 
+            f"{val_yes:.2f}", 
+            color='C0', 
+            ha='left', 
+            va='bottom'
+        )
+        
+        # Mark "No" quantile
+        plt.axvline(val_no, color='C1', linestyle='--', alpha=0.7)
+        plt.plot(val_no, cdf_value, 'o', color='C1')
+        # Text label slightly offset
+        plt.text(
+            val_no, cdf_value, 
+            f"{val_no:.2f}", 
+            color='C1', 
+            ha='left', 
+            va='bottom'
+        )
+    
+    # Title, labels, legend
+    plt.title(f"CDF of {col}")
+    plt.xlabel(col)
+    plt.ylabel("Cumulative Probability")
+    plt.legend()
+    
+    # Show the plot
+    plt.show()
+# %%
+# Create a cross-tabulation of 'Urban' vs. 'LILATracts_1And10' (food desert)
+counts = df_clean.groupby(['Urban', 'LILATracts_1And10']).size().unstack(fill_value=0)
+
+# Rename columns for clarity in the legend
+counts.columns = ["Food Desert = No", "Food Desert = Yes"]
+
+# Rename the index so 0 becomes 'Rural' and 1 becomes 'Urban'
+counts.index = ["Rural", "Urban"]
+
+# Compute percentage distribution for each Urban/Rural group
+percentage = counts.div(counts.sum(axis=1), axis=0) * 100
+
+# Plot grouped bar chart with percentages
+ax = percentage.plot(kind="bar", figsize=(7, 5), width=0.7)
+
+# Title and axis labels
+plt.title("Percentage of Urban/Rural Areas vs. Food Desert Status")
+plt.xlabel("Area Type")
+plt.ylabel("Percentage (%)")
+plt.xticks(rotation=0)
+plt.legend()
+
+# Display the plot
+plt.show()
+
+#%%
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.stats import gaussian_kde
+
+# Load the cleaned dataset
+df_clean = pd.read_csv("FoodAccessResearchAtlasData2019_cleaned.csv")
+
+# Define the variables to visualize (first 8 variables)
+columns_to_plot = [
+    "TractKids", 
+    "TractSeniors", 
+    "TractWhite", 
+    "TractBlack", 
+    "TractAsian", 
+    "TractNHOPI", 
+    "TractAIAN", 
+    "TractOMultir"
+]
+
+# Split the data by food desert status
+df_food_desert_yes = df_clean[df_clean["LILATracts_1And10"] == 1]
+df_food_desert_no  = df_clean[df_clean["LILATracts_1And10"] == 0]
+
+# Create a 2x4 grid for subplots
+fig, axes = plt.subplots(nrows=2, ncols=4, figsize=(20, 10))
+axes = axes.flatten()  # Flatten the array for easy iteration
+
+for ax, col in zip(axes, columns_to_plot):
+    # Drop NA values for each subset
+    data_yes = df_food_desert_yes[col].dropna()
+    data_no  = df_food_desert_no[col].dropna()
+    
+    # If one subset is empty, skip plotting this subplot
+    if data_yes.empty or data_no.empty:
+        continue
+    
+    # Determine a common grid for x values spanning both subsets
+    data_min = min(data_yes.min(), data_no.min())
+    data_max = max(data_yes.max(), data_no.max())
+    xs = np.linspace(data_min, data_max, 300)
+    
+    # Compute smooth PDFs using Gaussian KDE for each group
+    kde_yes = gaussian_kde(data_yes)
+    kde_no  = gaussian_kde(data_no)
+    
+    # Plot and fill the smooth PDF for "Food Desert = Yes"
+    ax.plot(xs, kde_yes(xs), label="Food Desert = Yes", color='C0')
+    ax.fill_between(xs, kde_yes(xs), alpha=0.3, color='C0')
+    
+    # Plot and fill the smooth PDF for "Food Desert = No"
+    ax.plot(xs, kde_no(xs), label="Food Desert = No", color='C1')
+    ax.fill_between(xs, kde_no(xs), alpha=0.3, color='C1')
+    
+    # Set title and labels for the subplot
+    ax.set_title(f"PDF of {col}")
+    ax.set_xlabel(col)
+    ax.set_ylabel("Density")
+    ax.legend()
+
+# Adjust layout to prevent overlapping and display the plot
+plt.tight_layout()
+plt.show()
+
+#%%
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.stats import gaussian_kde
+
+# 1. Load your cleaned dataset
+df_clean = pd.read_csv("/mnt/data/FoodAccessResearchAtlasData2019_cleaned.csv")
+
+# 2. Define the columns we want to visualize
+columns_to_plot = [
+    "MedianFamilyIncome", 
+    "PovertyRate", 
+    "NUMGQTRS", 
+    "OHU2010", 
+    "TractSNAP", 
+    "TractHUNV", 
+    "TractLOWI"
+]
+
+# 3. Split the data by food desert status
+df_food_desert_yes = df_clean[df_clean["LILATracts_1And10"] == 1]
+df_food_desert_no  = df_clean[df_clean["LILATracts_1And10"] == 0]
+
+for col in columns_to_plot:
+    # Drop NA values for each subset
+    data_yes = df_food_desert_yes[col].dropna()
+    data_no  = df_food_desert_no[col].dropna()
+    
+    # If for some reason one subset is empty, skip plotting to avoid errors
+    if data_yes.empty or data_no.empty:
+        continue
+
+    # 4. Determine the range for x-values (min and max of both subsets)
+    data_min = min(data_yes.min(), data_no.min())
+    data_max = max(data_yes.max(), data_no.max())
+    
+    # Create a grid of x values
+    xs = np.linspace(data_min, data_max, 300)
+    
+    # 5. Calculate Gaussian KDE for each subset
+    kde_yes = gaussian_kde(data_yes)
+    kde_no  = gaussian_kde(data_no)
+    
+    # 6. Create a new figure
+    plt.figure(figsize=(7, 5))
+
+    # Plot "Food Desert = Yes"
+    plt.plot(xs, kde_yes(xs), label="Food Desert = Yes")
+    plt.fill_between(xs, kde_yes(xs), alpha=0.3)
+    
+    # Plot "Food Desert = No"
+    plt.plot(xs, kde_no(xs), label="Food Desert = No")
+    plt.fill_between(xs, kde_no(xs), alpha=0.3)
+    
+    # 7. Title, labels, legend
+    plt.title(f"Smoothed PDF of {col}")
+    plt.xlabel(col)
+    plt.ylabel("Density")
+    plt.legend()
+    
+    # 8. Show the plot
+    plt.show()
+
