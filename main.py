@@ -125,10 +125,12 @@ def load_csv_and_group(file_path):
       - Read the CSV file.
       - Remove the text ' County' from the County column (if it exists).
       - Map full state names to abbreviations (if needed).
-      - Group by State and County, computing the mean for numeric columns.
+      - Group by State and County:
+            - Compute the mode for specified columns.
+            - Compute the mean for all other numeric columns.
 
     Returns:
-        pd.DataFrame: Grouped DataFrame with the mean values.
+        pd.DataFrame: Grouped DataFrame with aggregated values.
     """
     df = pd.read_csv(file_path)
 
@@ -141,13 +143,39 @@ def load_csv_and_group(file_path):
             .str.strip()
         )
 
-
     # Convert state names to abbreviations if needed
     if 'State' in df.columns:
         reverse_map = {v: k for k, v in STATE_MAPPING.items()}
         df['State'] = df['State'].map(lambda x: reverse_map.get(str(x).title(), x))
 
-    grouped_df = df.groupby(['State', 'County'], as_index=False).mean(numeric_only=True)
+    # List of columns to aggregate by mode
+    mode_columns = {
+        'LILATracts_1And10',
+        'LILATracts_halfAnd10',
+        'LILATracts_1And20',
+        'LILATracts_Vehicle',
+        'HUNVFlag',
+        'GroupQuartersFlag'
+    }
+
+    # Identify numeric columns for mean aggregation
+    numeric_cols = df.select_dtypes(include='number').columns.tolist()
+
+    # Build the aggregation dictionary
+    agg_dict = {}
+    for col in numeric_cols:
+        if col in mode_columns:
+            agg_dict[col] = lambda x: x.mode().iloc[0] if not x.mode().empty else np.nan
+        else:
+            agg_dict[col] = 'mean'
+
+    # In case any mode_columns are non-numeric and exist in the DataFrame,
+    # add them with mode aggregation.
+    for col in mode_columns:
+        if col in df.columns and col not in agg_dict:
+            agg_dict[col] = lambda x: x.mode().iloc[0] if not x.mode().empty else np.nan
+
+    grouped_df = df.groupby(['State', 'County'], as_index=False).agg(agg_dict)
     return grouped_df
 
 
@@ -4768,5 +4796,281 @@ for col in columns_to_check:
     u_stat, u_p = stats.mannwhitneyu(group1, group0, alternative='two-sided')
     print(f"Mann–Whitney U: U = {u_stat:.3f}, p = {u_p:.4f}")
 # %%
+
+### causal inference for food deserts
+
+
+import pandas as pd
+
+df = pd.read_excel('final_merged.xlsx')
+
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from causalinference import CausalModel
+from sklearn.linear_model import LogisticRegression
+import statsmodels.api as sm
+
+# Assuming df is your original dataframe loaded already
+columns = [
+    'PCH_SFSP_12_17', 'LILATracts_1And10', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+    'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+    'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+    'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+    'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+    'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10','Urban','HUNVFlag'
+]
+
+# Drop NA values to maintain data quality
+data = df[columns].dropna()
+
+# Define treatment properly using median
+median_snap = data['PCH_SFSP_12_17'].median()
+data['High_Foodservice_summer'] = (data['PCH_SFSP_12_17'] > median_snap).astype(int)
+# Outcome and Treatment
+Y = data['LILATracts_1And10'].values
+T = data['High_Foodservice_summer'].values
+
+# Confounders (covariates)
+X = data.drop(columns=['PCH_SFSP_12_17', 'LILATracts_1And10', 'High_Foodservice_summer']).values
+#
+# Standardize confounders
+scaler = StandardScaler()
+X_std = scaler.fit_transform(X)
+
+### 🌟 **1. Propensity Score Matching (PSM)**
+causal = CausalModel(Y, T, X_std)
+causal.est_propensity()
+
+print("\nBefore Matching Balance:")
+print(causal.summary_stats)
+
+causal.est_via_matching()
+
+print("\nMatching Estimates:")
+print(causal.estimates)
+
+print("\nAfter Matching Balance:")
+print(causal.summary_stats)
+
+### 🌟 **2. Inverse Probability of Treatment Weighting (IPTW)**
+# Logistic Regression for Propensity Scores
+ps_model = LogisticRegression().fit(X_std, T)
+propensity_scores = ps_model.predict_proba(X_std)[:, 0]
+
+# Ensure stable weights (clipping extreme propensity scores)
+# eps = 1e-6
+# propensity_scores = np.clip(propensity_scores, eps, 1 - eps)
+# weights = T / propensity_scores + (1 - T) / (1 - propensity_scores)
+
+# Stabilized IPTW weights (standard practice):
+treated_weights = T.mean() / propensity_scores
+control_weights = (1 - T).mean() / (1 - propensity_scores)
+
+weights = T * treated_weights + (1 - T) * control_weights
+
+
+# Weighted regression to estimate causal effects
+X_treatment = sm.add_constant(T)
+iptw_model = sm.WLS(Y, X_treatment, weights=weights)
+iptw_results = iptw_model.fit()
+print("\nIPTW Regression Results (Corrected):")
+print(iptw_results.summary())
+
+seed = 12345
+
+from sklearn.ensemble import RandomForestRegressor
+from econml.dr import LinearDRLearner
+
+regressor = RandomForestRegressor(random_state=seed, n_jobs=-1)
+propensity = LogisticRegression(max_iter=1000, random_state=seed)
+
+dr_model = LinearDRLearner(model_regression=regressor,
+                           model_propensity=propensity)
+dr_model.fit(Y, T, X=X_std)
+treatment_effect = dr_model.ate(X_std)
+print(f"Doubly Robust ATE: {treatment_effect:.4f}")
+
+
+columns = [
+    'PCH_SBP_12_17', 'LILATracts_1And10', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+    'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+    'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+    'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+    'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+    'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10','HUNVFlag'
+]
+
+# Drop NA values to maintain data quality
+data = df[columns].dropna()
+
+# Define treatment properly using median
+median_snap = data['PCH_SBP_12_17'].median()
+data['High_breakfast'] = (data['PCH_SBP_12_17'] > median_snap).astype(int)
+
+# Outcome and Treatment
+Y = data['LILATracts_1And10'].values
+T = data['High_breakfast'].values
+
+# Confounders (covariates)
+X = data.drop(columns=['PCH_SBP_12_17', 'LILATracts_1And10', 'High_breakfast']).values
+
+# Standardize confounders
+scaler = StandardScaler()
+X_std = scaler.fit_transform(X)
+
+### 🌟 **1. Propensity Score Matching (PSM)**
+
+causal = CausalModel(Y, T, X_std)
+causal.est_propensity()
+
+print("\nBefore Matching Balance:")
+print(causal.summary_stats)
+
+causal.est_via_matching()
+
+print("\nMatching Estimates:")
+print(causal.estimates)
+
+print("\nAfter Matching Balance:")
+print(causal.summary_stats)
+
+### 🌟 **2. Inverse Probability of Treatment Weighting (IPTW)**
+
+# Logistic Regression for Propensity Scores
+ps_model = LogisticRegression(max_iter=1000).fit(X_std, T)
+propensity_scores = ps_model.predict_proba(X_std)[:, 1]
+
+# Ensure stable weights (clipping extreme propensity scores)
+eps = 1e-6
+propensity_scores = np.clip(propensity_scores, eps, 1 - eps)
+weights = T / propensity_scores + (1 - T) / (1 - propensity_scores)
+
+# Weighted regression to estimate causal effects
+X_treatment = sm.add_constant(T)
+iptw_model = sm.WLS(Y, X_treatment, weights=weights)
+iptw_results = iptw_model.fit()
+
+print("\nIPTW Regression Results:")
+print(iptw_results.summary())
+
+
+
+## 📌 **Additional Robust Causal Inference Methods**
+
+# Include these methods to strengthen your analysis:
+
+### 🌟 **3. Doubly Robust Estimation (Recommended)**
+seed = 12345
+
+from sklearn.ensemble import RandomForestRegressor
+from econml.dr import LinearDRLearner
+
+regressor = RandomForestRegressor(random_state=seed, n_jobs=-1)
+propensity = LogisticRegression(max_iter=1000, random_state=seed)
+
+dr_model = LinearDRLearner(model_regression=regressor,
+                           model_propensity=propensity)
+dr_model.fit(Y, T, X=X_std)
+treatment_effect = dr_model.ate(X_std)
+print(f"Doubly Robust ATE: {treatment_effect:.4f}")
+#%%
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from causalinference import CausalModel
+from sklearn.linear_model import LogisticRegression
+import statsmodels.api as sm
+
+#Assuming df is your original dataframe loaded already
+columns = [
+    'PCH_SNAP_12_17', 'LILATracts_1And10', 'PCT_LACCESS_POP10','PCT_LACCESS_LOWI10',
+    'PCT_LACCESS_HHNV10','PCT_LACCESS_CHILD10','PCT_LACCESS_SENIORS10','GROCPTH11','SUPERCPTH11','CONVSPTH11','SPECSPTH11','SNAPSPTH12',
+    'WICSPTH11','FSRPTH11','PC_FFRSALES07','PCT_NSLP12','PCT_FREE_LUNCH10','PCT_REDUCED_LUNCH10','PCT_SBP12','PCT_SFSP12','PCT_WIC12','PCT_WICINFANTCHILD14',
+    'PCT_WICWOMEN14','PCT_CACFP12','FDPIR12','FMRKTPTH13','VEG_ACRESPTH07','FRESHVEG_ACRESPTH07','ORCHARD_ACRESPTH12','BERRY_ACRESPTH07','SLHOUSE07','GHVEG_SQFTPTH07',
+    'AGRITRSM_OPS07','PCT_DIABETES_ADULTS08','PCT_OBESE_ADULTS12','RECFACPTH11','PCT_NHWHITE10','PCT_NHBLACK10','PCT_HISP10','PCT_NHASIAN10','PCT_NHNA10','PCT_NHPI10',
+    'PCT_65OLDER10','PCT_18YOUNGER10','PERPOV10','METRO13','POPLOSS10','Urban'
+]
+
+# Drop NA values to maintain data quality
+data = df[columns].dropna()
+
+# Define treatment properly using median
+median_snap = data['PCH_SNAP_12_17'].median()
+data['High_SNAP'] = (data['PCH_SNAP_12_17'] > median_snap).astype(int)
+
+# Outcome and Treatment
+Y = data['LILATracts_1And10'].values
+T = data['High_SNAP'].values
+
+# Confounders (covariates)
+X = data.drop(columns=['PCH_SNAP_12_17', 'LILATracts_1And10', 'High_SNAP']).values
+
+# Standardize confounders
+scaler = StandardScaler()
+X_std = scaler.fit_transform(X)
+
+### 🌟 **1. Propensity Score Matching (PSM)**
+
+causal = CausalModel(Y, T, X_std)
+causal.est_propensity()
+
+print("\nBefore Matching Balance:")
+print(causal.summary_stats)
+
+causal.est_via_matching()
+
+print("\nMatching Estimates:")
+print(causal.estimates)
+
+print("\nAfter Matching Balance:")
+print(causal.summary_stats)
+
+### 🌟 **2. Inverse Probability of Treatment Weighting (IPTW)**
+
+# Logistic Regression for Propensity Scores
+ps_model = LogisticRegression(max_iter=1000).fit(X_std, T)
+propensity_scores = ps_model.predict_proba(X_std)[:, 0]
+
+# Ensure stable weights (clipping extreme propensity scores)
+# eps = 1e-6
+# propensity_scores = np.clip(propensity_scores, eps, 1 - eps)
+treated_weights = T.mean() / propensity_scores
+control_weights = (1 - T).mean() / (1 - propensity_scores)
+
+weights = T * treated_weights + (1 - T) * control_weights
+
+# Weighted regression to estimate causal effects
+X_treatment = sm.add_constant(T)
+iptw_model = sm.WLS(Y, X_treatment, weights=weights)
+iptw_results = iptw_model.fit()
+
+print("\nIPTW Regression Results:")
+print(iptw_results.summary())
+
+
+
+## 📌 **Additional Robust Causal Inference Methods**
+
+# Include these methods to strengthen your analysis:
+
+### 🌟 **3. Doubly Robust Estimation (Recommended)**
+seed = 12345
+
+from sklearn.ensemble import RandomForestRegressor
+from econml.dr import LinearDRLearner
+
+regressor = RandomForestRegressor(random_state=seed, n_jobs=-1)
+propensity = LogisticRegression(max_iter=1000, random_state=seed)
+
+dr_model = LinearDRLearner(model_regression=regressor,
+                           model_propensity=propensity)
+dr_model.fit(Y, T, X=X_std)
+treatment_effect = dr_model.ate(X_std)
+print(f"Doubly Robust ATE: {treatment_effect:.4f}")
+
+X_reg = sm.add_constant(np.column_stack([T, X_std]))
+reg_model = sm.OLS(Y, X_reg).fit()
+ate_reg_adj = reg_model.params[1]
+print(f"\nRegression Adjustment ATE: {ate_reg_adj:.4f}")
 
 
